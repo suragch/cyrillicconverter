@@ -9,9 +9,9 @@
   - **User Instructions**: Run `docker-compose up -d` from the `backend` directory to build and start all services. Verify that the containers are running using `docker ps`.
 
 - [ ] Step 2: Initialize PostgreSQL Database Schema
-  - **Task**: Create an initial SQL script that defines the schema for all required tables (`WordConversionPairs`, `AbbreviationExpansions`, `ModeratorActions`, `ModeratorApplications`). This script will be automatically executed by PostgreSQL upon its first initialization, setting up the database structure.
+  - **Task**: Create an initial SQL script that defines the schema for all required tables (`CyrillicWords`, `TraditionalConversions`, `Abbreviations`, `Expansions`, `ModeratorActions`, `ModeratorApplications`). This script will be automatically executed by PostgreSQL upon its first initialization, setting up the normalized database structure.
   - **Files**:
-    - `backend/db/init.sql`: Write `CREATE TABLE` statements for the four main tables, including primary keys, foreign keys, indexes, and default values as specified in the "Data Models" section of the technical specification.
+    - `backend/db/init.sql`: Write `CREATE TABLE` statements for the six main tables. This includes defining primary keys, foreign keys with `ON DELETE CASCADE`, indexes, and unique constraints as specified in the "Data Models" section of the technical specification.
     - `backend/docker-compose.yml`: Modify the `db` service definition to mount the `init.sql` script to `/docker-entrypoint-initdb.d/init.sql`. This is the standard mechanism for initializing a PostgreSQL container.
   - **Step Dependencies**: Step 1
   - **User Instructions**: If Step 1 was already run, you will need to stop the containers (`docker-compose down`), remove the PostgreSQL volume to allow re-initialization (`docker volume rm backend_db-data`), and then run `docker-compose up -d` again.
@@ -64,9 +64,9 @@
   - **User Instructions**: Build the app (`npm run build`) and preview it (`npm run preview`). In your browser's developer tools (Application tab), you should see the manifest loaded and the service worker registered and activated.
 
 - [ ] Step 8: Client-Side Database (IndexedDB) Setup
-  - **Task**: Integrate a lightweight wrapper library for IndexedDB, such as `dexie.js`, to simplify database interactions. Define the database schema with two object stores: `userDictionary` and `communityDictionary`.
+  - **Task**: Integrate a lightweight wrapper library for IndexedDB, such as `dexie.js`, to simplify database interactions. Define the database schema with object stores that mirror the normalized backend structure: `cyrillicWords`, `traditionalConversions`, `abbreviations`, `expansions`, and a separate `userContributions` store.
   - **Files**:
-    - `frontend/src/lib/db.ts`: Create a module to initialize and configure Dexie. Define the database version and the schema for the object stores. This file will export a singleton `db` instance to be used throughout the application.
+    - `frontend/src/lib/db.ts`: Create a module to initialize and configure Dexie. Define the database version and the schema for all object stores. This file will export a singleton `db` instance to be used throughout the application.
     - `frontend/package.json`: Add `dexie` as a dependency.
   - **Step Dependencies**: Step 5
   - **User Instructions**: After adding the dependency (`npm install dexie`), the application should still build and run correctly. Use the browser's developer tools to verify that an IndexedDB database with the correct name and object stores has been created.
@@ -94,56 +94,56 @@
 
 ## 4. Core Feature: Conversion & Contribution
 - [ ] Step 11: Implement Client-Side Conversion Engine
-  - **Task**: Develop the core text conversion logic in JavaScript. This engine will load dictionaries from IndexedDB into in-memory `Map` objects for performance, process input text, handle abbreviation expansion, look up words, and highlight unconverted words.
+  - **Task**: Develop the core text conversion logic in JavaScript. This engine will load dictionaries from IndexedDB into memory, perform a pre-processing pass to expand abbreviations, and then convert word-by-word. It must include logic to handle one-to-many ambiguities (both abbreviations and conversions) by interacting with the UI.
   - **Files**:
     - `frontend/src/lib/conversionEngine.ts`: The main file containing the conversion logic. It will export functions to initialize (load dictionaries) and convert text.
-    - `frontend/src/routes/+page.svelte`: Import and use the `conversionEngine`. Wire the "Convert" button to trigger the conversion process and display the results in the output text area. Unconverted words should be wrapped in a styled `<span>`.
+    - `frontend/src/routes/+page.svelte`: Import and use the `conversionEngine`. Wire the "Convert" button to trigger the conversion. Implement UI components (e.g., popovers) to handle ambiguity selection when the engine requires it.
   - **Step Dependencies**: Step 6, Step 8
-  - **User Instructions**: Manually add a few test words to the `userDictionary` in IndexedDB using the browser's dev tools. Type Cyrillic text containing these words into the input area and click "Convert". The output should show the correct translations, with any unknown words highlighted with a red underline.
+  - **User Instructions**: Manually add test data to IndexedDB. Type Cyrillic text containing an abbreviation with multiple expansions; the UI should prompt you to choose one. Type a word with multiple traditional spellings; the UI should allow you to select the correct one in the output.
 
 - [ ] Step 12: Implement "Add Word" Contribution Modal
-  - **Task**: Create a modal that appears when a user clicks on a highlighted, unconverted word. The modal will display the word, its context, and provide an input for the user to submit its Traditional Mongolian equivalent. New contributions should be saved immediately to the local `userDictionary`.
+  - **Task**: Create a modal that appears when a user clicks on a highlighted, unconverted word. The modal will display the word, its context, and provide an input for the user to submit its Traditional Mongolian (Menksoft) equivalent. New contributions should be saved immediately to the local `userContributions` store in IndexedDB.
   - **Files**:
     - `frontend/src/lib/components/ContributionModal.svelte`: A reusable modal component. It will receive the unconverted word as a prop and contain the form for submission.
-    - `frontend/src/routes/+page.svelte`: Add an event handler that listens for clicks on the highlighted word spans. This handler will open the `ContributionModal` and pass the relevant word data to it. On modal close/save, it should update the local dictionary and re-run the conversion.
+    - `frontend/src/routes/+page.svelte`: Add an event handler that listens for clicks on the highlighted word spans. This handler will open the `ContributionModal` and pass the relevant word data to it. On modal close/save, it should update the local database and re-run the conversion.
   - **Step Dependencies**: Step 11
   - **User Instructions**: Click on a red-underlined word. The contribution modal should pop up. Submitting a new translation should close the modal and instantly update the word in the main output text area.
 
-- [ ] Step 13: Implement Contribution API Endpoint
-  - **Task**: Create the backend endpoint (`POST /api/dictionary/word`) to receive new word contributions from users. The endpoint will validate the incoming data and insert it into the `WordConversionPairs` table in the PostgreSQL database with a 'pending' status.
+- [ ] Step 13: Implement Contribution API Endpoints
+  - **Task**: Create the backend endpoints to receive new contributions: `POST /api/conversions` for word conversions and `POST /api/abbreviations` for new abbreviations and expansions. The endpoints will validate incoming data and insert it into the appropriate PostgreSQL tables with a 'pending' status.
   - **Files**:
-    - `backend/api/lib/api_router.dart`: Add a new route handler for `POST /api/dictionary/word`.
-    - `backend/api/lib/dictionary_service.dart`: Create a service to handle the business logic and database interaction for word contributions. This will include data validation and the SQL `INSERT` statement.
-    - `backend/api/lib/models/word_pair.dart`: A Dart data class representing a `WordConversionPair`.
+    - `backend/api/lib/api_router.dart`: Add new route handlers for `POST /api/conversions` and `POST /api/abbreviations`.
+    - `backend/api/lib/conversion_service.dart`: Create a service to handle the business logic for word contributions, including finding/creating the `CyrillicWords` entry and inserting into `TraditionalConversions`.
+    - `backend/api/lib/models/conversion_model.dart`: A Dart data class representing a contribution payload.
   - **Step Dependencies**: Step 2, Step 3
-  - **User Instructions**: Use a tool like Postman to send a valid JSON payload to the `http://localhost/api/dictionary/word` endpoint. Verify that a new row is created in the `word_conversion_pairs` table in your PostgreSQL database with the status set to 'pending'.
+  - **User Instructions**: Use a tool like Postman to send a valid JSON payload to the `http://localhost/api/conversions` endpoint. Verify that new rows are created in the `cyrillic_words` and `traditional_conversions` tables in your PostgreSQL database.
 
 - [ ] Step 14: Implement Frontend-to-Backend Contribution Sync
-  - **Task**: Connect the frontend contribution modal to the backend API. When a user chooses to "Save & Submit," the new word pair will be sent to the backend. Implement logic to handle offline submissions using the Service Worker's Background Sync API.
+  - **Task**: Connect the frontend contribution modal to the backend API. When a user chooses to "Save & Submit," the new conversion will be sent to the backend `POST /api/conversions` endpoint. Implement logic to handle offline submissions using the Service Worker's Background Sync API.
   - **Files**:
     - `frontend/src/lib/components/ContributionModal.svelte`: Modify the save logic. If the user chooses to submit, make a `fetch` request to the backend API.
     - `frontend/src/service-worker.ts`: Add a 'sync' event listener. When a submission fails due to being offline, tag it for background sync. The sync event will later attempt to resend the data when connectivity is restored.
   - **Step Dependencies**: Step 12, Step 13
-  - **User Instructions**: Submit a new word while online; verify it appears in the database. Go offline using browser dev tools and submit another word. The UI should indicate it's queued. Go back online; the service worker should automatically sync the submission, and the new word should appear in the database.
+  - **User Instructions**: Submit a new word while online; verify it appears in the database. Go offline using browser dev tools and submit another word. The UI should indicate it's queued. Go back online; the service worker should automatically sync the submission, and the new data should appear in the database.
 
 ## 5. Moderation and Community Features
 - [ ] Step 15: Implement Moderation Endpoints
-  - **Task**: Create the secure backend API endpoints required for moderators to review and act upon pending submissions. This includes endpoints for fetching pending words and for approving or rejecting them, which will update the word's `approval_count` and `status`.
+  - **Task**: Create the secure backend API endpoints required for moderators to review and act upon pending submissions. This includes endpoints for fetching pending conversions and expansions, and for approving or rejecting them (`POST /api/moderation/conversion/{id}/approve`, etc.).
   - **Files**:
-    - `backend/api/lib/api_router.dart`: Add new protected routes under `/api/moderation/`, such as `GET /pending` and `POST /word/:id/approve`.
+    - `backend/api/lib/api_router.dart`: Add new protected routes under `/api/moderation/`.
     - `backend/api/lib/moderation_service.dart`: Implement the business logic for fetching pending submissions and handling the approval/rejection logic. Use database transactions to prevent race conditions when updating counts.
     - `backend/api/lib/auth_middleware.dart`: Ensure the moderation routes are protected by the JWT middleware and that it checks for a 'moderator' role.
   - **Step Dependencies**: Step 10, Step 13
   - **User Instructions**: Manually set a user's `is_moderator` flag to `true` in the PocketBase UI. Using that user's JWT, make API calls to the new moderation endpoints via Postman to ensure they are functional and properly secured.
 
 - [ ] Step 16: Build Moderation Dashboard UI
-  - **Task**: Develop the frontend interface for moderators. This will be a new, protected route in the SvelteKit app that displays a list of pending submissions fetched from the API and provides buttons to approve or reject each one.
+  - **Task**: Develop the frontend interface for moderators. This will be a new, protected route that displays lists of pending conversions and expansions fetched from the API and provides buttons to approve or reject each one.
   - **Files**:
-    - `frontend/src/routes/moderation/+page.svelte`: The main dashboard component. It will fetch pending words on load and display them in a list or table.
+    - `frontend/src/routes/moderation/+page.svelte`: The main dashboard component. It will fetch pending items on load and display them.
     - `frontend/src/routes/moderation/+layout.svelte`: A layout for the moderation section that checks the user's role from the `authStore` and redirects if they are not a moderator.
     - `frontend/src/lib/stores/authStore.ts`: Add logic to parse the JWT or user object from PocketBase to determine if the user has a moderator role.
   - **Step Dependencies**: Step 9, Step 15
-  - **User Instructions**: Log in as a moderator. You should be able to access the `/moderation` route and see a list of pending words. Non-moderators should be redirected or shown an error if they try to access this page. Approving/rejecting a word should remove it from the list.
+  - **User Instructions**: Log in as a moderator. You should be able to access the `/moderation` route and see lists of pending submissions. Non-moderators should be redirected or shown an error. Approving/rejecting a submission should remove it from the list.
 
 ## 6. Deployment and Automation
 - [ ] Step 17: Configure Frontend CI/CD with GitHub Actions

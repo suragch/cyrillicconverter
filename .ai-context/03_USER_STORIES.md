@@ -38,7 +38,15 @@ These stories describe the user's need for both personal, immediate control over
 
 ---
 
-## 3. Crowdsourcing & Moderation
+## 3. Graceful Ambiguity Resolution
+
+This story defines the user need for handling cases where a single word or abbreviation has multiple valid options.
+
+> **Solongo (Content Creator):** As a writer using a common abbreviation like "АН", I want the tool to show me that there are multiple options and let me easily choose between its possible Cyrillic expansions, like "Ардчилсан Нам" or "Америкийн Нэгдсэн Улс", so that the final converted text is accurate to my specific context without interrupting my workflow.
+
+---
+
+## 4. Crowdsourcing & Moderation
 
 These stories cover the motivations for contributing to the community and the needs of the moderators who protect the quality of that resource.
 

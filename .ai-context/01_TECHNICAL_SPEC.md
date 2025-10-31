@@ -67,7 +67,14 @@ sequenceDiagram
 
     User->>UI: Enters Cyrillic text & Clicks "Convert"
     UI->>ConversionEngine: Initiate conversion with text
-    ConversionEngine->>ConversionEngine: Detect & Expand Abbreviations (lookup in IndexedDB)
+    ConversionEngine->>IndexedDB: Lookup abbreviations found in text
+    IndexedDB-->>ConversionEngine: Return Cyrillic expansions
+    alt Found multiple expansions for an abbreviation
+        ConversionEngine-->>UI: Request user selection for ambiguity
+        User->>UI: Selects correct Cyrillic expansion
+        UI-->>ConversionEngine: Provide selected expansion
+    end
+    ConversionEngine->>ConversionEngine: Replace abbreviations with Cyrillic expansions in text
     ConversionEngine->>IndexedDB: Lookup each word (Local Dict first)
     IndexedDB-->>ConversionEngine: Return Traditional Mongolian or null
     ConversionEngine->>IndexedDB: Lookup in Community Dict if not in Local
@@ -89,9 +96,9 @@ sequenceDiagram
     User->>UI: Submits new word (Save & Submit)
     UI->>IndexedDB: Save word to Local Dictionary (immediate use)
     UI->>ServiceWorker: Queue submission for server
-    ServiceWorker->>API: POST /api/dictionary/word (with auth token)
+    ServiceWorker->>API: POST /api/conversions (with auth token)
     API->>API: Validate data & user role
-    API->>Database: Insert new word with 'pending' status
+    API->>Database: Insert new conversion with 'pending' status
     API-->>ServiceWorker: Return success
 ```
 
@@ -115,17 +122,19 @@ sequenceDiagram
 
 *   **Acceptance Criteria**:
     *   Conversion must happen entirely client-side in under 500ms for typical text.
+    *   Cyrillic abbreviations with multiple possible Cyrillic expansions must prompt the user to select the correct one.
     *   Unconverted words remain in Cyrillic and are highlighted with a red dotted underline.
-    *   Clicking a highlighted word opens a contribution modal showing context (2 words before/after).
+    *   Clicking a highlighted word opens a contribution modal showing context.
     *   User contributions are saved to their local IndexedDB dictionary immediately for personal use.
 *   **Technical Requirements**:
-    *   A Menksoft-to-Unicode conversion algorithm must be implemented in JavaScript for the copy-to-clipboard action.
-    *   Abbreviation detection (`/\b[A-Z-]{2,}\b/g`) runs before the main word-by-word conversion.
+    *   A Menksoft-to-Unicode conversion algorithm must be implemented in JavaScript for the copy-to-clipboard action. Latin script equivalents will also be generated on-the-fly client-side.
+    *   Abbreviation detection (`/\b[A-Z-]{2,}\b/g`) runs as a pre-processing step. The engine must look up Cyrillic expansions for detected abbreviations. If more than one expansion exists, the UI must handle the ambiguity.
 *   **Implementation Approach**:
-    1.  On app load, dictionaries are loaded from IndexedDB into in-memory JavaScript `Map` objects for O(1) lookup performance.
-    2.  The conversion process first expands abbreviations, then splits text into words.
-    3.  Each word is looked up, prioritizing the User Map, then the Community Map.
-    4.  Unconverted words are wrapped in a `<span>` with a class for styling and event listeners.
+    1.  On app load, dictionaries and abbreviation lists are loaded from IndexedDB into in-memory JavaScript `Map` objects for O(1) lookup performance.
+    2.  The conversion process first scans the input for abbreviations. For each found, it retrieves its list of Cyrillic expansions. If the list contains more than one item, the UI prompts the user for a choice. The original text is updated with the chosen expansions.
+    3.  The updated text is then split into words.
+    4.  Each word is looked up, prioritizing the User Map, then the Community Map. If a word has multiple traditional (Menksoft) spellings, the UI will need a mechanism to allow user selection.
+    5.  Unconverted words are wrapped in a `<span>` with a class for styling and event listeners.
 *   **Error Handling**:
     *   **Offline Submission**: The Service Worker's Background Sync API will be used to queue submissions made while offline.
     *   **Large Text (>5000 words)**: Conversion logic will be offloaded to a Web Worker to prevent blocking the main UI thread.
@@ -135,7 +144,7 @@ sequenceDiagram
 *   **Acceptance Criteria**:
     *   Logged-in users can apply for moderation by passing a 10-question test with a score of 9/10 or higher.
     *   Moderators can review pending submissions in a blind review process (contributor and other votes are hidden).
-    *   An approval adds +1 to a word's score; a rejection adds -1.
+    *   An approval adds +1 to a conversion's or expansion's score; a rejection adds -1.
 *   **Technical Requirements**:
     *   All moderation API endpoints must be protected, requiring a valid JWT from a user with a 'moderator' role.
     *   The 10 test questions for the moderator application must be fetched from a secure endpoint.
@@ -155,40 +164,74 @@ sequenceDiagram
 
 ### 4.1. Data Models (PostgreSQL)
 
-#### `WordConversionPairs`
-Stores the core translation data.
+#### `CyrillicWords`
+Stores the unique Cyrillic words. This is the "one" side of the one-to-many relationship.
 ```sql
-CREATE TABLE WordConversionPairs (
+CREATE TABLE CyrillicWords (
     word_id BIGSERIAL PRIMARY KEY,
-    cyrillic_word TEXT NOT NULL,
-    traditional_mongolian_menksoft TEXT NOT NULL,
-    traditional_mongolian_latin TEXT NOT NULL,
-    context_before TEXT,
-    context_after TEXT,
+    cyrillic_word TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_cyrillic_word ON CyrillicWords (cyrillic_word);
+```
+
+#### `TraditionalConversions`
+Stores the possible traditional Mongolian (Menksoft) conversions for each Cyrillic word. This is the "many" side.
+```sql
+CREATE TABLE TraditionalConversions (
+    conversion_id BIGSERIAL PRIMARY KEY,
+    word_id BIGINT NOT NULL REFERENCES CyrillicWords(word_id) ON DELETE CASCADE,
+    traditional TEXT NOT NULL, -- traditional Mongolian in Menksoft encoding
+    context TEXT NULL, -- e.g., "Би бол <word> хүн"
     status VARCHAR(10) NOT NULL DEFAULT 'pending', -- 'pending', 'probation', 'accepted', 'rejected'
     approval_count INTEGER NOT NULL DEFAULT 0,
     contributor_id VARCHAR(30) NULL, -- FK to PocketBase users.id
     contributor_ip_hash VARCHAR(64) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(word_id, traditional)
 );
-CREATE INDEX idx_cyrillic_word ON WordConversionPairs (cyrillic_word);
-CREATE INDEX idx_status ON WordConversionPairs (status);
+CREATE INDEX idx_conversions_status ON TraditionalConversions (status);
 ```
 
-#### `AbbreviationExpansions`
-Stores abbreviation definitions. Schema is analogous to `WordConversionPairs`.
+#### `Abbreviations`
+Stores the unique Cyrillic abbreviations.
+```sql
+CREATE TABLE Abbreviations (
+    abbreviation_id BIGSERIAL PRIMARY KEY,
+    cyrillic_abbreviation TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### `Expansions`
+Stores the possible Cyrillic expansions for each abbreviation (one-to-many).
+```sql
+CREATE TABLE Expansions (
+    expansion_id BIGSERIAL PRIMARY KEY,
+    abbreviation_id BIGINT NOT NULL REFERENCES Abbreviations(abbreviation_id) ON DELETE CASCADE,
+    cyrillic_expansion TEXT NOT NULL,
+    status VARCHAR(10) NOT NULL DEFAULT 'pending', -- 'pending', 'probation', 'accepted', 'rejected'
+    approval_count INTEGER NOT NULL DEFAULT 0,
+    contributor_id VARCHAR(30) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(abbreviation_id, cyrillic_expansion)
+);
+CREATE INDEX idx_expansions_status ON Expansions (status);
+```
 
 #### `ModeratorActions`
 Logs every moderation action for auditing.
 ```sql
 CREATE TABLE ModeratorActions (
     action_id BIGSERIAL PRIMARY KEY,
-    word_id BIGINT NULL REFERENCES WordConversionPairs(word_id),
-    abbreviation_id BIGINT NULL, -- REFERENCES AbbreviationExpansions(abbreviation_id)
+    conversion_id BIGINT NULL REFERENCES TraditionalConversions(conversion_id),
+    expansion_id BIGINT NULL REFERENCES Expansions(expansion_id),
     moderator_id VARCHAR(30) NOT NULL, -- FK to PocketBase users.id
     action_type VARCHAR(10) NOT NULL, -- 'approve', 'reject', 'edit'
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_action_target CHECK ((conversion_id IS NOT NULL AND expansion_id IS NULL) OR (conversion_id IS NULL AND expansion_id IS NOT NULL))
 );
 ```
 
@@ -212,60 +255,72 @@ CREATE TABLE ModeratorApplications (
 
 ### 4.2. Data Storage & Caching
 
-*   **Client-Side**: Two IndexedDB object stores: `userDictionary` and `communityDictionary`, keyed by `cyrillic_word`.
-*   **Server-Side Caching**: The gzipped full dictionary file is pre-generated and cached on the server to avoid generating it on every request.
+*   **Client-Side**: IndexedDB object stores will be used to mirror the normalized database structure for `CyrillicWords`, `TraditionalConversions`, `Abbreviations`, and `Expansions`. A separate store will be used for the user's private contributions.
+*   **Server-Side Caching**: The gzipped full dictionary and abbreviation files are pre-generated and cached on the server to avoid generating them on every request.
 
 ## 5. API Specifications
 
-### `POST /api/dictionary/word`
-*   **Description**: Submit a new word contribution.
+### `POST /api/conversions`
+*   **Description**: Submit a new conversion contribution. The backend will find or create the `CyrillicWords` entry and then create the new `TraditionalConversions` entry.
 *   **Auth**: Optional.
 *   **Rate Limiting**: 10/hr for anonymous IPs, 60/hr for authenticated users.
 *   **Request Body**:
     ```json
     {
       "cyrillic_word": "Монгол",
-      "traditional_mongolian_latin": "monggol",
-      "context_before": "Би бол",
-      "context_after": "хүн."
+      "menksoft": "menksoft_encoding_for_monggol",
+      "context": "Би бол Монгол хүн."
     }
     ```
-*   **Response (201 Created)**:
+*   **Response (201 Created)**: `{ "status": "success", "message": "Contribution received." }`
+
+### `POST /api/abbreviations`
+*   **Description**: Submit a new abbreviation with its first Cyrillic expansion.
+*   **Auth**: Optional.
+*   **Request Body**:
     ```json
-    { "status": "success", "message": "Contribution received." }
+    {
+      "cyrillic_abbreviation": "АНУ",
+      "cyrillic_expansion": "Америкийн Нэгдсэн Улс"
+    }
     ```
+*   **Response (201 Created)**: `{ "status": "success", "message": "Abbreviation and expansion received." }`
+
+### `POST /api/abbreviations/{id}/expansions`
+*   **Description**: Submit a new Cyrillic expansion for an existing abbreviation.
+*   **Auth**: Optional.
+*   **Request Body**:
+    ```json
+    {
+      "cyrillic_expansion": "Азийн хөгжлийн банк"
+    }
+    ```
+*   **Response (201 Created)**: `{ "status": "success", "message": "Expansion received." }`
 
 ### `GET /api/dictionary/full`
-*   **Description**: Download the complete, gzipped community dictionary.
+*   **Description**: Download the complete, gzipped community dictionary (conversions and abbreviations).
 *   **Auth**: None.
-*   **Response**: A `application/gzip` file containing a JSON array.
-    ```json
-    [{ "c": "Монгол", "t": "menksoft_encoding" }, ...]
-    ```
+*   **Response**: A `application/gzip` file containing a JSON object.
 
-### `POST /api/moderation/word/{id}/approve`
-*   **Description**: A moderator approves a word.
+### `POST /api/moderation/conversion/{id}/approve`
+*   **Description**: A moderator approves a specific Menksoft conversion.
 *   **Auth**: Required (moderator role).
-*   **Response (200 OK)**:
-    ```json
-    {
-      "word_id": 12345,
-      "new_approval_count": 1,
-      "new_status": "probation"
-    }
-    ```
+*   **Response (200 OK)**: `{ "conversion_id": 12345, "new_approval_count": 1, "new_status": "probation" }`
 
-### `POST /api/moderation/word/{id}/reject`
-*   **Description**: A moderator rejects a word.
+### `POST /api/moderation/conversion/{id}/reject`
+*   **Description**: A moderator rejects a specific Menksoft conversion.
 *   **Auth**: Required (moderator role).
-*   **Response (200 OK)**:
-    ```json
-    {
-      "word_id": 12345,
-      "new_approval_count": -1,
-      "new_status": "pending"
-    }
-    ```
+*   **Response (200 OK)**: `{ "conversion_id": 12345, "new_approval_count": -1, "new_status": "pending" }`
+
+### `POST /api/moderation/expansion/{id}/approve`
+*   **Description**: A moderator approves an expansion.
+*   **Auth**: Required (moderator role).
+*   **Response (200 OK)**: `{ "expansion_id": 6789, "new_approval_count": 1, "new_status": "probation" }`
+
+### `POST /api/moderation/expansion/{id}/reject`
+*   **Description**: A moderator rejects an expansion.
+*   **Auth**: Required (moderator role).
+*   **Response (200 OK)**: `{ "expansion_id": 6789, "new_approval_count": -1, "new_status": "pending" }`
 
 ## 6. Security & Privacy
 

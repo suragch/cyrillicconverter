@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 
@@ -14,4 +12,3 @@ void main() async {
 Response _echoRequest(Request request) {
   return Response.ok('Request for "${request.url}"\n');
 }
-

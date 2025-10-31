@@ -16,7 +16,7 @@
   - **Step Dependencies**: Step 1
   - **User Instructions**: If Step 1 was already run, you will need to stop the containers (`docker-compose down`), remove the PostgreSQL volume to allow re-initialization (`docker volume rm backend_db-data`), and then run `docker-compose up -d` again.
 
-- [ ] Step 3: Scaffold Dart Shelf API and Health Check Endpoint
+- [x] Step 3: Scaffold Dart Shelf API and Health Check Endpoint
   - **Task**: Create a basic Dart Shelf application. This includes setting up the project structure, adding dependencies, and creating a simple health-check endpoint (e.g., `GET /ping`) to verify that the API server is running correctly inside its Docker container.
   - **Files**:
     - `backend/api/pubspec.yaml`: Define project metadata and add dependencies like `shelf` and `shelf_router`.

@@ -1,9 +1,3 @@
-```
-dart run bin/server.dart
-./pocketbase serve
-brew services start postgresql
-```
-
 ```bash
 # Make sure you are running this in your command-line shell, not the psql prompt
 DROPDB -U suragch converter

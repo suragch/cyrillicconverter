@@ -1,5 +1,5 @@
 ## 1. Project Setup: Backend Infrastructure
-- [ ] Step 1: Initialize Backend Services with Docker Compose
+- [x] Step 1: Initialize Backend Services with Docker Compose
   - **Task**: Create a `docker-compose.yml` file to define and configure the three core backend services: the Dart API (`api`), PostgreSQL (`db`), and PocketBase (`auth`). This setup ensures all backend components can be started with a single command.
   - **Files**:
     - `backend/docker-compose.yml`: Define services for `api`, `db`, and `auth`. Configure ports, volumes for data persistence, and environment variables for PostgreSQL and PocketBase credentials.
@@ -8,7 +8,7 @@
   - **Step Dependencies**: None
   - **User Instructions**: Run `docker-compose up -d` from the `backend` directory to build and start all services. Verify that the containers are running using `docker ps`.
 
-- [ ] Step 2: Initialize PostgreSQL Database Schema
+- [x] Step 2: Initialize PostgreSQL Database Schema
   - **Task**: Create an initial SQL script that defines the schema for all required tables (`CyrillicWords`, `TraditionalConversions`, `Abbreviations`, `Expansions`, `ModeratorActions`, `ModeratorApplications`). This script will be automatically executed by PostgreSQL upon its first initialization, setting up the normalized database structure.
   - **Files**:
     - `backend/db/init.sql`: Write `CREATE TABLE` statements for the six main tables. This includes defining primary keys, foreign keys with `ON DELETE CASCADE`, indexes, and unique constraints as specified in the "Data Models" section of the technical specification.

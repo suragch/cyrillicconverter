@@ -34,7 +34,7 @@
   - **User Instructions**: Run `docker-compose up -d --build`. Access `http://localhost/ping`. The request should be routed through Nginx to the Dart API, and you should see the "pong" response.
 
 ## 2. Project Setup: Frontend Application
-- [ ] Step 5: Scaffold SvelteKit Frontend Application
+- [x] Step 5: Scaffold SvelteKit Frontend Application
   - **Task**: Initialize a new SvelteKit project using the official command-line tool. Set up the basic project structure, including TypeScript, Tailwind CSS for styling, and Prettier for code formatting, as per the technology stack recommendations.
   - **Files**:
     - `frontend/package.json`: Manages project dependencies.

@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import '../app.css'; // Import global Tailwind CSS
     import { db } from '$lib/db';
+    import Navbar from '$lib/components/Navbar.svelte';
 
     onMount(async () => {
         try {
@@ -13,8 +14,8 @@
     });
 </script>
 
-<div class="min-h-screen bg-white text-near-black flex flex-col items-center p-4 sm:p-8 font-inter">
-    <main class="w-full max-w-7xl flex-grow">
-        <slot />
-    </main>
-</div>
+<Navbar />
+
+<main class="container mx-auto p-4">
+    <slot />
+</main>

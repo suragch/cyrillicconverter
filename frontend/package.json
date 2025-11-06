@@ -25,6 +25,7 @@
 		"vite": "^7.1.10"
 	},
 	"dependencies": {
-		"dexie": "^3.2.7"
+		"dexie": "^3.2.7",
+		"pocketbase": "^0.26.3"
 	}
 }

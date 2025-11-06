@@ -2,14 +2,47 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { initializeEngine, convert, type ConversionResultSegment } from '$lib/conversionEngine';
-    // Placeholder for the popover component you will create next
-    // import AmbiguityResolver from '$lib/components/AmbiguityResolver.svelte';
-
-    let inputText = 'АНУ-ын иргэн Монгол хүн.';
+    import ContributionModal from '$lib/components/ContributionModal.svelte';
+    import { db } from '$lib/db.ts';
+    let inputText = '';
     let conversionResult: ConversionResultSegment[] = [];
-    
+    let modalContext: { word: string; context: string } | null = null;
+
     // This will hold the context for the popover later
     let ambiguityContext: ConversionResultSegment | null = null;
+
+    function openModal(word: string) {
+        modalContext = { word, context: inputText };
+    }
+
+    async function handleSaveContribution(event: CustomEvent<{ menksoft: string }>) {
+        if (!modalContext) return;
+
+        const { menksoft } = event.detail;
+        const cyrillicWord = modalContext.word;
+
+        try {
+            // 1. Save to the local userContributions store
+            await db.userContributions.add({
+                cyrillic_word: cyrillicWord,
+                // In a real schema, this would be a menksoft field
+                // For now, let's assume the table has this structure
+                traditional: menksoft
+            });
+
+            // 2. TODO: Update the in-memory engine map for instant feedback
+            // (This will be improved by updating conversionEngine.ts later)
+
+            // 3. Close the modal
+            modalContext = null;
+
+            // 4. Re-run the conversion to show the new word
+            handleConvert();
+        } catch (error) {
+            console.error("Failed to save contribution:", error);
+            // Optionally show an error toast to the user
+        }
+    }
 
     onMount(async () => {
         await initializeEngine();
@@ -87,7 +120,9 @@
                 {#if segment.type === 'converted'}
                     <span>{segment.converted}</span>
                 {:else if segment.type === 'unconverted'}
-                    <span class="unconverted">{segment.original}</span>
+                    <button class="unconverted-word" on:click={() => openModal(segment.original)}>
+                        {segment.original}
+                    </button>
                 {:else if segment.type === 'whitespace'}
                     <span>{segment.value}</span>
                 {/if}
@@ -95,6 +130,16 @@
         </div>
     </div>
 </div>
+
+<!-- Add the modal component, controlled by the state variable -->
+{#if modalContext}
+    <ContributionModal
+        cyrillicWord={modalContext.word}
+        context={modalContext.context}
+        on:close={() => (modalContext = null)}
+        on:save={handleSaveContribution}
+    />
+{/if}
 
 <!-- This will be the popover for ambiguity, hidden by default -->
 {#if ambiguityContext}
@@ -113,10 +158,16 @@
 {/if}
 
 <style>
-    .unconverted {
+    .unconverted-word {
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
         text-decoration: underline;
         text-decoration-style: dotted;
-        text-decoration-color: red;
+        text-decoration-color: #dc3545; /* Red from style guide */
+        color: #dc3545;
         text-underline-offset: 3px;
     }
 </style>

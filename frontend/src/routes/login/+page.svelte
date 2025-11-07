@@ -1,7 +1,7 @@
 <script lang="ts">
     import { pb } from '$lib/pocketbase';
     import { goto } from '$app/navigation';
-    import { currentUser } from '$lib/stores/authStore';
+    
 
     let email = '';
     let password = '';

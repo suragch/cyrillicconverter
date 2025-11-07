@@ -1,5 +1,6 @@
 <!-- frontend/src/lib/components/ContributionModal.svelte -->
 <script lang="ts">
+    import { db } from '$lib/db';
     import { createEventDispatcher, onMount } from 'svelte';
 
     export let cyrillicWord: string;
@@ -10,8 +11,48 @@
 
     const dispatch = createEventDispatcher();
 
-    function handleSave() {
+    async function handleSubmitAndSync() {
+        if (!menksoftInput.trim()) {
+            alert('Please enter the traditional Mongolian conversion.');
+            return;
+        }
+
+        try {
+            // 1. Prepare the payload
+            const contributionPayload = {
+                cyrillic_word: cyrillicWord,
+                menksoft: menksoftInput,
+                context: context
+            };
+
+            // 2. Save the submission to the local "outbox" (syncQueue)
+            await db.syncQueue.add({
+                payload: contributionPayload,
+                timestamp: Date.now()
+            });
+
+            // 3. Get the Service Worker registration
+            const registration = await navigator.serviceWorker.ready;
+
+            // 4. Request a background sync. This will trigger the 'sync' event
+            //    in the service worker, even if the user navigates away or closes the tab.
+            await registration.sync.register('sync-contributions');
+
+            // 5. Provide immediate feedback to the user and close the modal
+            alert('Contribution saved and will be submitted to the community!');
+            dispatch('close');
+
+        } catch (error) {
+            console.error('Failed to queue contribution for sync:', error);
+            // Fallback for browsers that might not support background sync
+            alert('Could not save contribution. Please try again later.');
+        }
+    }
+
+    function handleSaveLocally() {
         if (menksoftInput.trim()) {
+            // Existing logic to save to userContributions store...
+            console.log('Saved locally.');
             dispatch('save', { menksoft: menksoftInput.trim() });
         }
     }
@@ -43,7 +84,7 @@
             bind:this={inputElement}
             bind:value={menksoftInput}
             placeholder="Enter Menksoft translation..."
-            on:keydown={(e) => e.key === 'Enter' && handleSave()}
+            on:keydown={(e) => e.key === 'Enter' && handleSubmitAndSync()}
         />
     </div>
 
@@ -53,8 +94,8 @@
     </div>
     
     <div class="actions">
-        <button class="secondary" on:click={handleClose}>Cancel</button>
-        <button class="primary" on:click={handleSave}>Save Locally</button>
+        <button class="secondary" on:click={handleSaveLocally}>Save Locally</button>
+        <button class="primary" on:click={handleSubmitAndSync}>Save & Submit</button>
     </div>
 </div>
 

@@ -1,52 +1,36 @@
 import Dexie, { type Table } from 'dexie';
 
-export interface CyrillicWord {
-  word_id?: number;
-  cyrillic_word: string;
-}
-
-export interface TraditionalConversion {
-  conversion_id?: number;
-  word_id: number;
-  traditional: string;
-  status: 'pending' | 'approved' | 'rejected';
-}
-
-export interface Abbreviation {
-  abbreviation_id?: number;
-  cyrillic_abbreviation: string;
-}
-
-export interface Expansion {
-  expansion_id?: number;
-  abbreviation_id: number;
-  cyrillic_expansion: string;
-  status: 'pending' | 'approved' | 'rejected';
-}
-
-export interface UserContribution {
+// Define the structure of the data you'll queue
+export interface QueuedContribution {
   id?: number;
-  cyrillic_word: string;
-  traditional_conversion: string;
+  payload: {
+    cyrillic_word: string;
+    menksoft: string;
+    context: string;
+  };
+  timestamp: number;
 }
 
-export class MongolConverterDB extends Dexie {
-  cyrillicWords!: Table<CyrillicWord>;
-  traditionalConversions!: Table<TraditionalConversion>;
-  abbreviations!: Table<Abbreviation>;
-  expansions!: Table<Expansion>;
-  userContributions!: Table<UserContribution>;
+export class MySubClassedDexie extends Dexie {
+  // Define tables (object stores)
+  cyrillicWords!: Table<any>;
+  traditionalConversions!: Table<any>;
+  abbreviations!: Table<any>;
+  expansions!: Table<any>;
+  userContributions!: Table<any>;
+  syncQueue!: Table<QueuedContribution>; // <<< ADD THIS LINE
 
   constructor() {
     super('mongol-converter-db');
-    this.version(1).stores({
-      cyrillicWords: '++word_id, &cyrillic_word',
-      traditionalConversions: '++conversion_id, word_id, status, &[word_id+traditional]',
-      abbreviations: '++abbreviation_id, &cyrillic_abbreviation',
-      expansions: '++expansion_id, abbreviation_id, status, &[abbreviation_id+cyrillic_expansion]',
+    this.version(2).stores({ // <<< INCREMENT THE VERSION NUMBER
+      cyrillicWords: '++id, cyrillic_word',
+      traditionalConversions: '++id, word_id, traditional',
+      abbreviations: '++id, cyrillic_abbreviation',
+      expansions: '++id, abbreviation_id',
       userContributions: '++id, cyrillic_word',
+      syncQueue: '++id, timestamp' // <<< ADD THIS SCHEMA DEFINITION
     });
   }
 }
 
-export const db = new MongolConverterDB();
+export const db = new MySubClassedDexie();

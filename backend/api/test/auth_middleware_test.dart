@@ -26,12 +26,6 @@ class MockJwtService implements JwtService {
     // Return null for invalid tokens
     return null;
   }
-
-  @override
-  Future<void> _fetchPublicKey() {
-    // No-op for mock
-    return Future.value();
-  }
 }
 
 void main() {

@@ -1,0 +1,1 @@
+import{w as r,l as a}from"./BuRW4a-I.js";import{p as e}from"./BM2eiINI.js";const t=r(e.authStore.model);e.authStore.onChange(o=>{console.log("Auth store changed:",o),t.set(e.authStore.model)});const i=a(t,o=>o?o.is_moderator===!0:!1);export{t as a,i};

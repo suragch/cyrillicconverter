@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="manifest" href="/manifest.json" /> <!-- Link to your manifest -->
+    <meta name="theme-color" content="#0052FF" /> <!-- Matches theme_color in manifest -->
+    
+		<link rel="modulepreload" href="/_app/immutable/entry/start.CSg0vmpU.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/CMMOSwh0.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/BuRW4a-I.js">
+		<link rel="modulepreload" href="/_app/immutable/entry/app.CY6APo7Q.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/FIFTuy36.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/Y1qfGezR.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/DWZ7psrM.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/D-k3Rz23.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/BfBxJV-a.js">
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">
+			<script>
+				{
+					__sveltekit_rq7vn4 = {
+						base: ""
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("/_app/immutable/entry/start.CSg0vmpU.js"),
+						import("/_app/immutable/entry/app.CY6APo7Q.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element);
+					});
+
+					if ('serviceWorker' in navigator) {
+						addEventListener('load', function () {
+							navigator.serviceWorker.register('/service-worker.js');
+						});
+					}
+				}
+			</script>
+		</div>
+  </body>
+</html>

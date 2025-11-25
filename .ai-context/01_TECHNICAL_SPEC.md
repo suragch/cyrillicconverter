@@ -1,341 +1,154 @@
 # Cyrillic-Traditional Mongolian Converter: Technical Specification
 
-This document outlines the technical specifications for the Cyrillic-Traditional Mongolian Converter PWA. It serves as the primary technical reference for all development tasks.
-
 ## 1. System Architecture
 
 ### 1.1. Overview
+The system follows a separated Client-Server model.
+1.  **Frontend (Flutter Web)**: Handles the UI, rendering Traditional Script, and managing local user overrides.
+2.  **Conversion API (Dart Shelf)**: The heavy lifter. Connects directly to a specialized SQLite dictionary database for high-performance lookups. Logs unknown word frequencies.
+3.  **Auth & User Management (PocketBase)**: Handles authentication, user sessions, and profile management.
+4.  **Database Strategy**: Hybrid.
+    *   **Dictionary.db (SQLite)**: Managed by Dart Shelf. Stores words, definitions, and frequency logs. Optimized for read speed.
+    *   **pb_data (SQLite)**: Managed by PocketBase. Stores users, roles, and auth tokens.
 
-The system is a Progressive Web App (PWA) with a hybrid backend. The core design principles are **privacy-first** and **offline capability**. All text conversion happens on the client-side, and no user text is ever uploaded to a server. The backend exists solely to manage the crowdsourced dictionary and the moderation system.
-
-### 1.2. High-Level Architecture Diagram
+### 1.2. High-Level Diagram
 
 ```mermaid
 graph TD
-    subgraph "Client (Browser/PWA)"
-        UI[User Interface - Svelte/Vue]
-        Engine[Conversion Engine - JS]
-        LocalDB[IndexedDB]
-        SW[Service Worker]
-
-        UI -- User Input --> Engine
-        Engine -- Dictionary Lookup --> LocalDB
-        UI -- Contributions --> LocalDB
-        UI -- Server Submissions --> SW
-        LocalDB -- User & Community Dictionaries --> Engine
-        SW -- Background Sync --> API
+    subgraph "Client (Flutter Web)"
+        UI[User Interface]
+        LocalStore[Hive (Local Overrides)]
+        UI -- 1. Submit Text --> API
+        UI -- 4. Render JSON --> UI
+        UI -- 5. User Fix --> LocalStore
     end
 
-    subgraph "CDN (GitHub Pages / Cloudflare)"
-        Static[Static Assets - App Shell, Fonts]
+    subgraph "Backend (Docker)"
+        API[Dart Shelf API]
+        PB[PocketBase (Auth)]
+        
+        DictDB[(Dictionary.db - SQLite)]
+        
+        API -- 2. Lookup/Log --> DictDB
+        API -- 3. Verify Token --> PB
     end
-
-    subgraph "Backend (VPS with Docker)"
-        API[API Server - Dart Shelf]
-        Auth[Authentication - PocketBase]
-        Database[(PostgreSQL)]
-
-        API -- CRUD Operations --> Database
-        API -- Verify Role --> Auth
-        Moderator -- Moderation Actions --> API
-    end
-
-    User[User] -- Interacts With --> UI
-    Moderator[Moderator] -- Manages Data --> UI
-    User -- Initial Load --> CDN
-    SW -- Caches --> Static
 ```
 
-### 1.3. System Components
+### 1.3. Data Flow: Conversion
 
-*   **Frontend PWA**: A single-page application containing all UI, client-side conversion logic, and local dictionary management in IndexedDB.
-*   **Service Worker**: A background script enabling offline functionality, application shell caching, and background synchronization of the community dictionary.
-*   **Backend API (Dart Shelf)**: A stateless API for ingesting new word contributions, managing the moderation workflow, and serving dictionary updates.
-*   **Authentication Service (PocketBase)**: Manages user registration, login, and roles (e.g., "user," "moderator").
-*   **Database (PostgreSQL)**: The source of truth for all community-contributed words, abbreviations, and moderation logs.
-
-### 1.4. Data Flow Diagrams
-
-#### Conversion Flow (Client-Side Only)
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI
-    participant ConversionEngine
-    participant IndexedDB
-
-    User->>UI: Enters Cyrillic text & Clicks "Convert"
-    UI->>ConversionEngine: Initiate conversion with text
-    ConversionEngine->>IndexedDB: Lookup abbreviations found in text
-    IndexedDB-->>ConversionEngine: Return Cyrillic expansions
-    alt Found multiple expansions for an abbreviation
-        ConversionEngine-->>UI: Request user selection for ambiguity
-        User->>UI: Selects correct Cyrillic expansion
-        UI-->>ConversionEngine: Provide selected expansion
-    end
-    ConversionEngine->>ConversionEngine: Replace abbreviations with Cyrillic expansions in text
-    ConversionEngine->>IndexedDB: Lookup each word (Local Dict first)
-    IndexedDB-->>ConversionEngine: Return Traditional Mongolian or null
-    ConversionEngine->>IndexedDB: Lookup in Community Dict if not in Local
-    IndexedDB-->>ConversionEngine: Return Traditional Mongolian or null
-    ConversionEngine-->>UI: Return converted text with unconverted words highlighted
-    UI->>User: Display result
-```
-
-#### Contribution Sync Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI
-    participant IndexedDB
-    participant ServiceWorker
-    participant API
-
-    User->>UI: Submits new word (Save & Submit)
-    UI->>IndexedDB: Save word to Local Dictionary (immediate use)
-    UI->>ServiceWorker: Queue submission for server
-    ServiceWorker->>API: POST /api/conversions (with auth token)
-    API->>API: Validate data & user role
-    API->>Database: Insert new conversion with 'pending' status
-    API-->>ServiceWorker: Return success
-```
+1.  **Input**: User sends a large string of Cyrillic text to `POST /api/convert`.
+2.  **Tokenization**: Server splits text into tokens (words, punctuation, whitespace).
+3.  **Lookup**:
+    *   API queries `Dictionary.db`.
+    *   If word found: Retrieve all Menksoft variations and context hints.
+    *   If word NOT found: Increment counter in `UnknownWordLogs` table. Return original Cyrillic.
+4.  **Response**: Server returns a JSON structure: `List<Token>`.
+5.  **Client Processing**:
+    *   Flutter app iterates through the list.
+    *   Checks `LocalStore` (Hive) to see if the user has a personal override for this Cyrillic word. If yes, use that.
+    *   Renders the text.
+        *   **Red Underline**: Unknown word (Cyrillic).
+        *   **Blue Underline**: Ambiguous word (Multiple options available).
 
 ## 2. Technology Stack
 
-*   **Frontend Framework**: SvelteKit or Vue.js (Chosen for performance and small bundle sizes).
-*   **Frontend Styling**: Tailwind CSS (For a utility-first, responsive UI).
-*   **Frontend Build Tool**: Vite.
-*   **Client-Side Storage**: IndexedDB (For user and community dictionaries).
-*   **Backend API**: Dart 3+ with the Shelf framework.
-*   **Authentication**: PocketBase (Self-hosted).
-*   **Database**: PostgreSQL 15+.
-*   **Containerization**: Docker and Docker Compose.
-*   **Hosting**:
-    *   **Frontend**: GitHub Pages with Cloudflare CDN.
-    *   **Backend**: VPS (e.g., DigitalOcean, Hetzner) running Docker containers.
+*   **Frontend**: Flutter Web (CanvasKit).
+*   **Local Persistence**: Hive (NoSQL, fast, pure Dart) for storing user's personal dictionary overrides.
+*   **Backend API**: Dart (Shelf framework).
+*   **Authentication**: PocketBase (Go-based, acts as Auth provider).
+*   **Database**: SQLite (accessed via `sqlite3` Dart package in Shelf).
+*   **Deployment**: Docker Compose.
 
-## 3. Feature Specifications
+## 3. Data Models (Dictionary.db - SQLite)
 
-### 3.1. Core Conversion & Contribution
+This database is managed exclusively by the Dart Shelf API.
 
-*   **Acceptance Criteria**:
-    *   Conversion must happen entirely client-side in under 500ms for typical text.
-    *   Cyrillic abbreviations with multiple possible Cyrillic expansions must prompt the user to select the correct one.
-    *   Unconverted words remain in Cyrillic and are highlighted with a red dotted underline.
-    *   Clicking a highlighted word opens a contribution modal showing context.
-    *   User contributions are saved to their local IndexedDB dictionary immediately for personal use.
-*   **Technical Requirements**:
-    *   A Menksoft-to-Unicode conversion algorithm must be implemented in JavaScript for the copy-to-clipboard action. Latin script equivalents will also be generated on-the-fly client-side.
-    *   Abbreviation detection (`/\b[A-Z-]{2,}\b/g`) runs as a pre-processing step. The engine must look up Cyrillic expansions for detected abbreviations. If more than one expansion exists, the UI must handle the ambiguity.
-*   **Implementation Approach**:
-    1.  On app load, dictionaries and abbreviation lists are loaded from IndexedDB into in-memory JavaScript `Map` objects for O(1) lookup performance.
-    2.  The conversion process first scans the input for abbreviations. For each found, it retrieves its list of Cyrillic expansions. If the list contains more than one item, the UI prompts the user for a choice. The original text is updated with the chosen expansions.
-    3.  The updated text is then split into words.
-    4.  Each word is looked up, prioritizing the User Map, then the Community Map. If a word has multiple traditional (Menksoft) spellings, the UI will need a mechanism to allow user selection.
-    5.  Unconverted words are wrapped in a `<span>` with a class for styling and event listeners.
-*   **Error Handling**:
-    *   **Offline Submission**: The Service Worker's Background Sync API will be used to queue submissions made while offline.
-    *   **Large Text (>5000 words)**: Conversion logic will be offloaded to a Web Worker to prevent blocking the main UI thread.
-
-### 3.2. User Authentication & Moderation
-
-*   **Acceptance Criteria**:
-    *   Logged-in users can apply for moderation by passing a 10-question test with a score of 9/10 or higher.
-    *   Moderators can review pending submissions in a blind review process (contributor and other votes are hidden).
-    *   An approval adds +1 to a conversion's or expansion's score; a rejection adds -1.
-*   **Technical Requirements**:
-    *   All moderation API endpoints must be protected, requiring a valid JWT from a user with a 'moderator' role.
-    *   The 10 test questions for the moderator application must be fetched from a secure endpoint.
-*   **Implementation Approach**:
-    *   Authentication is handled by the PocketBase Web SDK, which provides a JWT.
-    *   The JWT is sent in the `Authorization: Bearer <token>` header on all API requests.
-    *   The Dart API uses a middleware to validate the JWT and check the user's role.
-    *   Status changes based on `approval_count` are handled atomically on the backend:
-        *   `approval_count >= 1`: status = `probation`
-        *   `approval_count >= 5`: status = `accepted`
-        *   `approval_count <= -3`: status = `rejected`
-*   **Error Handling**:
-    *   **Race Conditions**: Database transactions with `SELECT FOR UPDATE` will be used to lock rows during approval count updates to prevent race conditions.
-    *   **Unauthorized Access**: The API will return a `403 Forbidden` status code for unauthorized access attempts.
-
-## 4. Data Architecture
-
-### 4.1. Data Models (PostgreSQL)
-
-#### `CyrillicWords`
-Stores the unique Cyrillic words. This is the "one" side of the one-to-many relationship.
+### 3.1. `words`
+The Cyrillic entry points.
 ```sql
-CREATE TABLE CyrillicWords (
-    word_id BIGSERIAL PRIMARY KEY,
-    cyrillic_word TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE words (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cyrillic TEXT NOT NULL UNIQUE,
+    is_abbreviation BOOLEAN DEFAULT 0
 );
-CREATE INDEX idx_cyrillic_word ON CyrillicWords (cyrillic_word);
+CREATE INDEX idx_cyrillic ON words(cyrillic);
 ```
 
-#### `TraditionalConversions`
-Stores the possible traditional Mongolian (Menksoft) conversions for each Cyrillic word. This is the "many" side.
+### 3.2. `definitions`
+The Traditional Mongolian mappings. One-to-many relationship with `words`.
 ```sql
-CREATE TABLE TraditionalConversions (
-    conversion_id BIGSERIAL PRIMARY KEY,
-    word_id BIGINT NOT NULL REFERENCES CyrillicWords(word_id) ON DELETE CASCADE,
-    traditional TEXT NOT NULL, -- traditional Mongolian in Menksoft encoding
-    context TEXT NULL, -- e.g., "Би бол <word> хүн"
-    status VARCHAR(10) NOT NULL DEFAULT 'pending', -- 'pending', 'probation', 'accepted', 'rejected'
-    approval_count INTEGER NOT NULL DEFAULT 0,
-    contributor_id VARCHAR(30) NULL, -- FK to PocketBase users.id
-    contributor_ip_hash VARCHAR(64) NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(word_id, traditional)
-);
-CREATE INDEX idx_conversions_status ON TraditionalConversions (status);
-```
-
-#### `Abbreviations`
-Stores the unique Cyrillic abbreviations.
-```sql
-CREATE TABLE Abbreviations (
-    abbreviation_id BIGSERIAL PRIMARY KEY,
-    cyrillic_abbreviation TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE definitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word_id INTEGER NOT NULL,
+    menksoft_code TEXT NOT NULL, -- The specific Traditional script string
+    explanation TEXT, -- Context hint (e.g., "The bank (money)", "The bank (river)")
+    is_primary BOOLEAN DEFAULT 0, -- Default choice if no user intervention
+    FOREIGN KEY(word_id) REFERENCES words(id)
 );
 ```
 
-#### `Expansions`
-Stores the possible Cyrillic expansions for each abbreviation (one-to-many).
+### 3.3. `unknown_logs`
+Tracks frequency of missing words to guide moderation.
 ```sql
-CREATE TABLE Expansions (
-    expansion_id BIGSERIAL PRIMARY KEY,
-    abbreviation_id BIGINT NOT NULL REFERENCES Abbreviations(abbreviation_id) ON DELETE CASCADE,
-    cyrillic_expansion TEXT NOT NULL,
-    status VARCHAR(10) NOT NULL DEFAULT 'pending', -- 'pending', 'probation', 'accepted', 'rejected'
-    approval_count INTEGER NOT NULL DEFAULT 0,
-    contributor_id VARCHAR(30) NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(abbreviation_id, cyrillic_expansion)
-);
-CREATE INDEX idx_expansions_status ON Expansions (status);
-```
-
-#### `ModeratorActions`
-Logs every moderation action for auditing.
-```sql
-CREATE TABLE ModeratorActions (
-    action_id BIGSERIAL PRIMARY KEY,
-    conversion_id BIGINT NULL REFERENCES TraditionalConversions(conversion_id),
-    expansion_id BIGINT NULL REFERENCES Expansions(expansion_id),
-    moderator_id VARCHAR(30) NOT NULL, -- FK to PocketBase users.id
-    action_type VARCHAR(10) NOT NULL, -- 'approve', 'reject', 'edit'
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_action_target CHECK ((conversion_id IS NOT NULL AND expansion_id IS NULL) OR (conversion_id IS NULL AND expansion_id IS NOT NULL))
+CREATE TABLE unknown_logs (
+    cyrillic TEXT PRIMARY KEY,
+    frequency INTEGER DEFAULT 1,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-#### `ModeratorApplications`
-Tracks applications to become a moderator.
+### 3.4. `suggestions`
+User submissions waiting for approval.
 ```sql
-CREATE TABLE ModeratorApplications (
-    application_id SERIAL PRIMARY KEY,
-    user_id VARCHAR(30) NOT NULL,
-    test_score INTEGER NOT NULL,
-    test_answers JSONB,
-    self_description TEXT,
-    status VARCHAR(10) NOT NULL DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cyrillic TEXT NOT NULL,
+    menksoft_code TEXT NOT NULL,
+    context_snippet TEXT NULL, -- Optional, user opt-in
+    user_id TEXT, -- From PocketBase
+    status TEXT DEFAULT 'pending' -- pending, approved, rejected
 );
 ```
 
-#### `Users` (PocketBase Collection)
-*   Managed by PocketBase.
-*   Custom Field: `is_moderator` (boolean, default: `false`).
+## 4. API Endpoints (Dart Shelf)
 
-### 4.2. Data Storage & Caching
-
-*   **Client-Side**: IndexedDB object stores will be used to mirror the normalized database structure for `CyrillicWords`, `TraditionalConversions`, `Abbreviations`, and `Expansions`. A separate store will be used for the user's private contributions.
-*   **Server-Side Caching**: The gzipped full dictionary and abbreviation files are pre-generated and cached on the server to avoid generating them on every request.
-
-## 5. API Specifications
-
-### `POST /api/conversions`
-*   **Description**: Submit a new conversion contribution. The backend will find or create the `CyrillicWords` entry and then create the new `TraditionalConversions` entry.
-*   **Auth**: Optional.
-*   **Rate Limiting**: 10/hr for anonymous IPs, 60/hr for authenticated users.
-*   **Request Body**:
+### `POST /convert`
+*   **Body**: `{ "text": "Би банк руу явлаа." }`
+*   **Logic**: Tokenizes, looks up DB, logs unknown words.
+*   **Response**:
     ```json
     {
-      "cyrillic_word": "Монгол",
-      "menksoft": "menksoft_encoding_for_monggol",
-      "context": "Би бол Монгол хүн."
+      "tokens": [
+        { "type": "word", "src": "Би", "options": [{"val": "...", "hint": "I", "default": true}] },
+        { "type": "space", "val": " " },
+        { "type": "word", "src": "банк", "options": [
+            {"val": "...", "hint": "financial", "default": true}, 
+            {"val": "...", "hint": "river edge", "default": false}
+          ] 
+        },
+        ...
+      ]
     }
     ```
-*   **Response (201 Created)**: `{ "status": "success", "message": "Contribution received." }`
 
-### `POST /api/abbreviations`
-*   **Description**: Submit a new abbreviation with its first Cyrillic expansion.
-*   **Auth**: Optional.
-*   **Request Body**:
-    ```json
-    {
-      "cyrillic_abbreviation": "АНУ",
-      "cyrillic_expansion": "Америкийн Нэгдсэн Улс"
-    }
-    ```
-*   **Response (201 Created)**: `{ "status": "success", "message": "Abbreviation and expansion received." }`
+### `POST /contribute`
+*   **Body**: `{ "cyrillic": "...", "menksoft": "...", "context": "..." }`
+*   **Logic**: Inserts into `suggestions` table.
 
-### `POST /api/abbreviations/{id}/expansions`
-*   **Description**: Submit a new Cyrillic expansion for an existing abbreviation.
-*   **Auth**: Optional.
-*   **Request Body**:
-    ```json
-    {
-      "cyrillic_expansion": "Азийн хөгжлийн банк"
-    }
-    ```
-*   **Response (201 Created)**: `{ "status": "success", "message": "Expansion received." }`
+### `GET /admin/stats` (Moderator Only)
+*   **Logic**: Returns top 100 rows from `unknown_logs` ordered by frequency DESC.
 
-### `GET /api/dictionary/full`
-*   **Description**: Download the complete, gzipped community dictionary (conversions and abbreviations).
-*   **Auth**: None.
-*   **Response**: A `application/gzip` file containing a JSON object.
+## 5. Flutter Implementation Details
 
-### `POST /api/moderation/conversion/{id}/approve`
-*   **Description**: A moderator approves a specific Menksoft conversion.
-*   **Auth**: Required (moderator role).
-*   **Response (200 OK)**: `{ "conversion_id": 12345, "new_approval_count": 1, "new_status": "probation" }`
+### 5.1. Rendering Engine
+*   Flutter Web using `CanvasKit` is required for pixel-perfect rendering of the vertical Mongolian script, specifically to handle ligature joining correctly which HTML/DOM renderers often break.
 
-### `POST /api/moderation/conversion/{id}/reject`
-*   **Description**: A moderator rejects a specific Menksoft conversion.
-*   **Auth**: Required (moderator role).
-*   **Response (200 OK)**: `{ "conversion_id": 12345, "new_approval_count": -1, "new_status": "pending" }`
+### 5.2. State Management
+*   **Provider** or **Riverpod**.
+*   **Controller**: `ConversionController` holds the list of Tokens. It has methods like `selectOption(index, option)` which updates the UI instantly.
 
-### `POST /api/moderation/expansion/{id}/approve`
-*   **Description**: A moderator approves an expansion.
-*   **Auth**: Required (moderator role).
-*   **Response (200 OK)**: `{ "expansion_id": 6789, "new_approval_count": 1, "new_status": "probation" }`
-
-### `POST /api/moderation/expansion/{id}/reject`
-*   **Description**: A moderator rejects an expansion.
-*   **Auth**: Required (moderator role).
-*   **Response (200 OK)**: `{ "expansion_id": 6789, "new_approval_count": -1, "new_status": "pending" }`
-
-## 6. Security & Privacy
-
-### 6.1. Authentication & Authorization
-*   **Mechanism**: JWTs issued by PocketBase are included in the `Authorization: Bearer <token>` header for all API calls.
-*   **Roles**:
-    *   **Anonymous**: Can convert, download dict, submit words (rate-limited).
-    *   **Authenticated User**: Can apply for moderation and view their contribution history.
-    *   **Moderator**: Can access the moderation dashboard and all moderation endpoints.
-
-### 6.2. Data Security
-*   **Encryption**: All traffic is encrypted via TLS 1.2+ (HTTPS). Passwords are hashed at rest by PocketBase.
-*   **PII Handling**: The only PII collected from anonymous users is the IP address, which is **hashed with SHA-256** before being stored. Raw IP addresses are never stored.
-
-### 6.3. Application Security
-*   **Input Validation**: All user-submitted text is sanitized on the backend before database insertion to prevent XSS.
-*   **SQL Injection**: All database queries use parameterized statements.
-*   **Security Misconfiguration**: Strict CORS policies and security headers (`Content-Security-Policy`, etc.) are enforced by the reverse proxy and backend API.
+### 5.3. Local Overrides
+*   When a user clicks a Red word and "Fixes" it, the app:
+    1.  Saves `{cyrillic: menksoft}` to Hive (Local Browser Storage).
+    2.  Sends the suggestion to the API (fire and forget).
+    3.  Re-renders the view using the local override.

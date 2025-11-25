@@ -1,38 +1,25 @@
-# Cyrillic-Traditional Mongolian Converter: Project Specification v3
+# Cyrillic-Traditional Mongolian Converter: Project Specification v4
 
 ## Elevator Pitch
-A privacy-first web app that converts Cyrillic Mongolian text to Traditional Mongolian script instantly in your browser—no server uploads required. Built on crowdsourced translation data with rigorous quality control, it empowers the Mongolian community to preserve and improve their linguistic heritage collaboratively while maintaining complete text privacy. Users can contribute translations that are immediately available locally, even before moderator approval.
+A powerful, community-driven web application that converts Cyrillic Mongolian text to Traditional Mongolian script using a robust server-side engine. Unlike static converters, this system identifies unknown words to prioritize community contributions based on frequency, ensuring the dictionary grows exactly where it is needed most. It features a lightweight Flutter interface that handles complex ambiguities and allows users to maintain personal, immediate overrides for their workflow.
 
 ## Problem Statement
-Mongolian speakers who want to convert between Cyrillic and Traditional Mongolian script face several challenges:
-- **Privacy concerns**: Existing tools often require uploading documents to external servers
-- **Incomplete dictionaries**: Many proper nouns, technical terms, and modern vocabulary lack Traditional Mongolian equivalents
-- **Limited community input**: Translations are often siloed, with no mechanism for collective improvement
-- **Quality inconsistency**: Multiple valid spellings exist without guidance on which to use
-- **Immediate needs vs community building**: Users need translations now but also want to contribute to shared knowledge
+- **Static Dictionaries**: Existing tools fail silently or poorly when encountering new or technical vocabulary.
+- **Ambiguity**: Many Cyrillic words map to multiple Traditional spellings (homonyms) or have multiple valid abbreviations, but current tools often force a single, potentially incorrect choice.
+- **Wasted Data**: When a converter fails to translate a word, that data point is usually lost. Developers don't know which words users are actually trying to convert.
+- **Workflow Interruption**: Users needing to translate documents often have to manually edit results in a separate text editor.
 
 ## Target Audience
-**Primary Users:**
-- Mongolian language learners and educators
-- Cultural preservationists and historians
-- Writers and content creators working with Traditional Mongolian script
-- Government and institutional workers needing script conversion
+- **Primary**: Content creators, government employees, and translators who need accurate, reliable conversion.
+- **Secondary**: Cultural preservationists and language learners.
+- **Admin/Moderators**: Linguistic experts who manage the dictionary quality.
 
-**Secondary Users:**
-- Linguists and researchers
-- Diaspora communities reconnecting with traditional script
-- Tourists and casual users exploring Mongolian language
-
-## USP
-- **Privacy-by-design**: All conversions happen client-side in the browser with no server uploads
-- **Zero-friction access**: Instant conversion without signup
-- **Immediate + community benefit**: Contributions are available locally instantly AND shared with community after moderation
-- **Dual-layer dictionary**: User's personal dictionary + shared community dictionary
-- **Rigorous quality control**: Multi-tier moderation system (net +5 approvals = fully accepted, net -3 = rejected)
-- **Context-aware contributions**: Reviewers see surrounding words to validate rare/unusual terms
-- **Progressive Web App**: Works offline with automatic database updates when online
+## USP (Unique Selling Propositions)
+- **Frequency-Driven Evolution**: The system logs every unknown word and its frequency. Moderators know exactly which missing words to add next to have the biggest impact.
+- **Interactive Ambiguity Resolution**: The server returns structured data, allowing the user to click a word and choose the correct spelling/expansion from a list, rather than accepting a machine guess.
+- **Local Overrides**: Users can "fix" a word locally. This fix applies immediately to their future conversions (offline/cached) and is sent to the server as a suggestion.
+- **High-Fidelity Rendering**: Built with Flutter (CanvasKit) to ensure complex Traditional Mongolian script is rendered perfectly across all devices.
 
 ## Target Platforms
-- **Primary**: Progressive Web App (PWA) for modern browsers (Chrome, Firefox, Safari, Edge)
-- **Responsive design**: Desktop and mobile web
-- **Offline-first**: Full functionality without internet connection once dictionary is cached
+- **Web**: Flutter Web (Default Renderer/CanvasKit).
+- **Architecture**: Client-Server (Heavy logic on server, UI on client).

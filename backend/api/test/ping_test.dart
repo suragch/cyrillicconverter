@@ -13,9 +13,23 @@ void main() {
       'dart',
       ['run', 'bin/server.dart'],
       workingDirectory: '/Users/suragch/Dev/Web/cyrillicconverter/backend/api',
+      environment: {
+        'DB_HOST': 'localhost',
+        'DB_PORT': '5432',
+        'DB_NAME': 'cyrillic_converter_db',
+        'DB_USER': 'converter_user',
+        'DB_PASSWORD': 'YourNewStrongPasswordGoesHere', // From .env
+      },
     );
+    
     // Wait for the server to be ready.
-    await process.stdout.first;
+    // We'll read stdout until we see "Server listening"
+    final stream = process.stdout.transform(SystemEncoding().decoder);
+    await for (final line in stream) {
+      if (line.contains('Server listening')) {
+        break;
+      }
+    }
   });
 
   tearDown(() {

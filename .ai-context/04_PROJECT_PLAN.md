@@ -1,13 +1,7 @@
-This sounds like a much more robust approach. By building vertically (Frontend + Backend feature-by-feature) and testing locally, we reduce the "integration hell" risk.
-
-Here is the revised, highly detailed project plan.
-
---- START OF FILE 04_PROJECT_PLAN.md ---
-
 # Project Plan: Iterative Local Development
 
 **Philosophy**: We build "Vertically." We don't build the whole API then the whole UI. We build the "Hello World" API, then the "Hello World" UI. Then the "Database" API, then the "Database" UI.
-**Prerequisites**: Flutter SDK installed, Dart SDK installed, VS Code (or preferred IDE).
+**Prerequisites**: Flutter SDK installed, Dart SDK installed.
 
 ---
 

@@ -4,11 +4,15 @@ import 'dart:io';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
+import 'package:sqlite3/sqlite3.dart';
+import '../lib/token.dart'; // Though we are constructing JSON manually, good to have reference if we switch to using the class directly
 
 // Configure routes.
 final _router = Router()
   ..post('/echo', _echoHandler)
   ..post('/convert', _convertHandler);
+
+late final Database _db;
 
 Future<Response> _echoHandler(Request request) async {
   final content = await request.readAsString();
@@ -29,26 +33,56 @@ Future<Response> _convertHandler(Request request) async {
     final json = jsonDecode(content);
     final text = json['text'] as String;
     
-    // Mock Logic:
-    // If input is "Монгол", return Menksoft code for Mongol.
-    // Otherwise return unknown.
-    // For now, let's just return a hardcoded list for "Монгол"
+    // Simple tokenizer: split by space for now (improve later)
+    // TODO: Better regex to handle punctuation
+    final rawTokens = text.split(' ');
     
     final List<Map<String, dynamic>> tokens = [];
     
-    if (text.contains('Монгол')) {
-      tokens.add({
-        'type': 'word',
-        'original': 'Монгол',
-        'options': ['\u182E\u1823\u1829\u182D\u1823\u182F'] // Menksoft code for Mongol (approximate for mock)
-      });
-    } else {
-       tokens.add({
-        'type': 'unknown',
-        'original': text,
-        'options': []
-      });
+    final stmtWord = _db.prepare('SELECT id FROM words WHERE cyrillic = ?');
+    final stmtDef = _db.prepare('SELECT menksoft_code, explanation, is_primary FROM definitions WHERE word_id = ?');
+
+    for (final raw in rawTokens) {
+      if (raw.trim().isEmpty) {
+        tokens.add({
+          'type': 'space',
+          'original': ' ',
+          'options': []
+        });
+        continue;
+      }
+
+      final wordResult = stmtWord.select([raw]);
+      if (wordResult.isNotEmpty) {
+        final wordId = wordResult.first['id'];
+        final defResult = stmtDef.select([wordId]);
+        
+        final options = defResult.map((row) => {
+          'menksoft': row['menksoft_code'] as String,
+          'explanation': row['explanation'] as String?,
+          'isDefault': (row['is_primary'] as int) == 1,
+        }).toList();
+        
+        tokens.add({
+          'type': 'word',
+          'original': raw,
+          'options': options
+        });
+      } else {
+        // Log unknown word
+        _db.execute('INSERT OR IGNORE INTO unknown_logs (cyrillic) VALUES (?)', [raw]);
+        _db.execute('UPDATE unknown_logs SET frequency = frequency + 1 WHERE cyrillic = ?', [raw]);
+
+        tokens.add({
+          'type': 'unknown',
+          'original': raw,
+          'options': []
+        });
+      }
     }
+    
+    stmtWord.dispose();
+    stmtDef.dispose();
 
     return Response.ok(
       jsonEncode({'tokens': tokens}),
@@ -82,6 +116,10 @@ Middleware corsMiddleware() {
 }
 
 void main(List<String> args) async {
+  // Initialize DB
+  _db = sqlite3.open('dictionary.db');
+  print('Database opened.');
+
   // Use any available host or container IP (usually `0.0.0.0`).
   final ip = InternetAddress.anyIPv4;
 

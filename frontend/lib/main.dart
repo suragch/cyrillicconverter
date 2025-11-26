@@ -2,9 +2,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'token.dart';
 
-void main() {
+void main() async {
+  await Hive.initFlutter();
+  await Hive.openBox('user_overrides');
   runApp(const MyApp());
 }
 
@@ -37,6 +40,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   List<Token> _tokens = [];
   bool _isLoading = false;
   String? _error;
+  final Box _overridesBox = Hive.box('user_overrides');
 
   Future<void> _convert() async {
     setState(() {
@@ -72,6 +76,61 @@ class _ConverterScreenState extends State<ConverterScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _showFixDialog(Token token) {
+    final TextEditingController fixController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Fix "${token.original}"'),
+          content: TextField(
+            controller: fixController,
+            decoration: const InputDecoration(labelText: 'Menksoft Code'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                _overridesBox.put(token.original, fixController.text);
+                setState(() {}); // Re-render to apply override
+                Navigator.pop(context);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAmbiguityMenu(BuildContext context, Token token, Offset position) {
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      items: token.options.map((option) {
+        return PopupMenuItem(
+          value: option.menksoft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              MongolText(option.menksoft, style: const TextStyle(fontSize: 20)),
+              if (option.explanation != null)
+                Text(option.explanation!, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        );
+      }).toList(),
+    ).then((value) {
+      if (value != null) {
+        _overridesBox.put(token.original, value);
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -115,23 +174,51 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: _tokens.map((token) {
-                      // For now, just pick the first option or original if unknown
-                      String textToDisplay = token.original;
-                      if (token.type == 'word' && token.options.isNotEmpty) {
-                        textToDisplay = token.options.first;
-                      }
+                      if (token.type == 'space') return const SizedBox(width: 10);
                       
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: MongolText(
-                          textToDisplay,
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontFamily: 'Menksoft',
-                            color: token.type == 'unknown' ? Colors.red : Colors.black,
-                            decoration: token.type == 'unknown' ? TextDecoration.underline : null,
-                            decorationColor: Colors.red,
-                            decorationStyle: TextDecorationStyle.wavy,
+                      // Check override first
+                      String? override = _overridesBox.get(token.original);
+                      String textToDisplay = override ?? '';
+                      bool isAmbiguous = token.options.length > 1;
+                      bool isUnknown = token.type == 'unknown';
+
+                      if (override == null) {
+                        if (token.options.isNotEmpty) {
+                           // Find default or first
+                           final def = token.options.firstWhere((o) => o.isDefault, orElse: () => token.options.first);
+                           textToDisplay = def.menksoft;
+                        } else {
+                          textToDisplay = token.original;
+                        }
+                      }
+
+                      return GestureDetector(
+                        onTapUp: (details) {
+                          if (isAmbiguous) {
+                            _showAmbiguityMenu(context, token, details.globalPosition);
+                          } else {
+                            _showFixDialog(token);
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: isAmbiguous && override == null
+                                  ? const Border(bottom: BorderSide(color: Colors.blue, width: 2, style: BorderStyle.solid)) // Dotted not easily avail in Border, using solid blue for now
+                                  : null,
+                            ),
+                            child: MongolText(
+                              textToDisplay,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontFamily: 'Menksoft',
+                                color: isUnknown && override == null ? Colors.red : Colors.black,
+                                decoration: isUnknown && override == null ? TextDecoration.underline : null,
+                                decorationColor: Colors.red,
+                                decorationStyle: TextDecorationStyle.wavy,
+                              ),
+                            ),
                           ),
                         ),
                       );

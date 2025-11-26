@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:mongol/mongol.dart';
 import 'token.dart';
 
 void main() {
@@ -122,18 +123,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       
                       return Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: RotatedBox(
-                          quarterTurns: 1,
-                          child: Text(
-                            textToDisplay,
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontFamily: 'Menksoft',
-                              color: token.type == 'unknown' ? Colors.red : Colors.black,
-                              decoration: token.type == 'unknown' ? TextDecoration.underline : null,
-                              decorationColor: Colors.red,
-                              decorationStyle: TextDecorationStyle.wavy,
-                            ),
+                        child: MongolText(
+                          textToDisplay,
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontFamily: 'Menksoft',
+                            color: token.type == 'unknown' ? Colors.red : Colors.black,
+                            decoration: token.type == 'unknown' ? TextDecoration.underline : null,
+                            decorationColor: Colors.red,
+                            decorationStyle: TextDecorationStyle.wavy,
                           ),
                         ),
                       );

@@ -33,6 +33,16 @@ void main() {
     );
   ''');
 
+  db.execute('''
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cyrillic TEXT NOT NULL,
+      menksoft_code TEXT NOT NULL,
+      context TEXT,
+      submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  ''');
+
   print('Tables created.');
 
   // Seed data

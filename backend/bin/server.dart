@@ -10,7 +10,8 @@ import '../lib/token.dart'; // Though we are constructing JSON manually, good to
 // Configure routes.
 final _router = Router()
   ..post('/echo', _echoHandler)
-  ..post('/convert', _convertHandler);
+  ..post('/convert', _convertHandler)
+  ..post('/contribute', _contributeHandler);
 
 late final Database _db;
 
@@ -24,6 +25,40 @@ Future<Response> _echoHandler(Request request) async {
     );
   } catch (e) {
     return Response.badRequest(body: 'Invalid JSON');
+  }
+}
+
+Future<Response> _contributeHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content);
+    final cyrillic = json['cyrillic'] as String?;
+    final menksoft = json['menksoft'] as String?;
+    final context = json['context'] as String? ?? '';
+
+    // Validate input
+    if (cyrillic == null || cyrillic.isEmpty) {
+      return Response.badRequest(body: jsonEncode({'error': 'cyrillic is required'}));
+    }
+    if (menksoft == null || menksoft.isEmpty) {
+      return Response.badRequest(body: jsonEncode({'error': 'menksoft is required'}));
+    }
+
+    // Insert into suggestions table
+    _db.execute(
+      'INSERT INTO suggestions (cyrillic, menksoft_code, context) VALUES (?, ?, ?)',
+      [cyrillic, menksoft, context],
+    );
+
+    return Response.ok(
+      jsonEncode({'success': true}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    print('Error in /contribute: $e');
+    return Response.internalServerError(
+      body: jsonEncode({'error': 'Server error'}),
+    );
   }
 }
 

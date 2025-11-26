@@ -79,6 +79,23 @@ class _ConverterScreenState extends State<ConverterScreen> {
     }
   }
 
+  Future<void> _submitContribution(String cyrillic, String menksoft) async {
+    try {
+      await http.post(
+        Uri.parse('http://localhost:8080/contribute'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'cyrillic': cyrillic,
+          'menksoft': menksoft,
+          'context': '',
+        }),
+      );
+    } catch (e) {
+      print('Failed to submit contribution: $e');
+      // Don't show error to user - this is a background operation
+    }
+  }
+
   void _showFixDialog(Token token) {
     final TextEditingController fixController = TextEditingController();
     showDialog(
@@ -97,7 +114,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             TextButton(
               onPressed: () {
-                _overridesBox.put(token.original, fixController.text);
+                final menksoftCode = fixController.text;
+                _overridesBox.put(token.original, menksoftCode);
+                _submitContribution(token.original, menksoftCode); // Send to server
                 setState(() {}); // Re-render to apply override
                 Navigator.pop(context);
               },
@@ -129,6 +148,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     ).then((value) {
       if (value != null) {
         _overridesBox.put(token.original, value);
+        _submitContribution(token.original, value); // Send to server
         setState(() {});
       }
     });

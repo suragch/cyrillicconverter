@@ -7,7 +7,8 @@ import 'package:shelf_router/shelf_router.dart';
 
 // Configure routes.
 final _router = Router()
-  ..post('/echo', _echoHandler);
+  ..post('/echo', _echoHandler)
+  ..post('/convert', _convertHandler);
 
 Future<Response> _echoHandler(Request request) async {
   final content = await request.readAsString();
@@ -19,6 +20,43 @@ Future<Response> _echoHandler(Request request) async {
     );
   } catch (e) {
     return Response.badRequest(body: 'Invalid JSON');
+  }
+}
+
+Future<Response> _convertHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content);
+    final text = json['text'] as String;
+    
+    // Mock Logic:
+    // If input is "Монгол", return Menksoft code for Mongol.
+    // Otherwise return unknown.
+    // For now, let's just return a hardcoded list for "Монгол"
+    
+    final List<Map<String, dynamic>> tokens = [];
+    
+    if (text.contains('Монгол')) {
+      tokens.add({
+        'type': 'word',
+        'original': 'Монгол',
+        'options': ['\u182E\u1823\u1829\u182D\u1823\u182F'] // Menksoft code for Mongol (approximate for mock)
+      });
+    } else {
+       tokens.add({
+        'type': 'unknown',
+        'original': text,
+        'options': []
+      });
+    }
+
+    return Response.ok(
+      jsonEncode({'tokens': tokens}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    print(e);
+    return Response.badRequest(body: 'Invalid JSON or Server Error');
   }
 }
 

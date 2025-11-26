@@ -33,9 +33,19 @@ Future<Response> _convertHandler(Request request) async {
     final json = jsonDecode(content);
     final text = json['text'] as String;
     
-    // Simple tokenizer: split by space for now (improve later)
-    // TODO: Better regex to handle punctuation
-    final rawTokens = text.split(' ');
+    // Improved tokenizer: use splitMapJoin to preserve both words and spaces
+    final List<String> rawTokens = [];
+    text.splitMapJoin(
+      RegExp(r'\S+'),  // Match non-whitespace (words)
+      onMatch: (m) {
+        rawTokens.add(m.group(0)!);
+        return '';
+      },
+      onNonMatch: (nm) {
+        if (nm.isNotEmpty) rawTokens.add(nm);
+        return '';
+      },
+    );
     
     final List<Map<String, dynamic>> tokens = [];
     
@@ -43,10 +53,11 @@ Future<Response> _convertHandler(Request request) async {
     final stmtDef = _db.prepare('SELECT menksoft_code, explanation, is_primary FROM definitions WHERE word_id = ?');
 
     for (final raw in rawTokens) {
+      // Check if this token is whitespace
       if (raw.trim().isEmpty) {
         tokens.add({
           'type': 'space',
-          'original': ' ',
+          'original': raw,  // Preserve the actual whitespace
           'options': []
         });
         continue;

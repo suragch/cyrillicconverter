@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -171,58 +172,65 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 // Vertical Rendering Area
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _tokens.map((token) {
-                      if (token.type == 'space') return const SizedBox(width: 10);
-                      
-                      // Check override first
-                      String? override = _overridesBox.get(token.original);
-                      String textToDisplay = override ?? '';
-                      bool isAmbiguous = token.options.length > 1;
-                      bool isUnknown = token.type == 'unknown';
-
-                      if (override == null) {
-                        if (token.options.isNotEmpty) {
-                           // Find default or first
-                           final def = token.options.firstWhere((o) => o.isDefault, orElse: () => token.options.first);
-                           textToDisplay = def.menksoft;
-                        } else {
-                          textToDisplay = token.original;
+                  child: MongolText.rich(
+                    TextSpan(
+                      children: _tokens.expand((token) {
+                        List<TextSpan> spans = [];
+                        
+                        if (token.type == 'space') {
+                          // Use Mongolian vowel separator for proper spacing in vertical text
+                          spans.add(const TextSpan(
+                            text: ' ',  // Mongolian Vowel Separator - provides word spacing
+                            style: TextStyle(fontSize: 24, fontFamily: 'Menksoft'),
+                          ));
+                          return spans;
                         }
-                      }
+                        
+                        // Check override first
+                        String? override = _overridesBox.get(token.original);
+                        String textToDisplay = override ?? '';
+                        bool isAmbiguous = token.options.length > 1;
+                        bool isUnknown = token.type == 'unknown';
 
-                      return GestureDetector(
-                        onTapUp: (details) {
-                          if (isAmbiguous) {
-                            _showAmbiguityMenu(context, token, details.globalPosition);
+                        if (override == null) {
+                          if (token.options.isNotEmpty) {
+                             // Find default or first
+                             final def = token.options.firstWhere((o) => o.isDefault, orElse: () => token.options.first);
+                             textToDisplay = def.menksoft;
                           } else {
-                            _showFixDialog(token);
+                            textToDisplay = token.original;
                           }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: isAmbiguous && override == null
-                                  ? const Border(bottom: BorderSide(color: Colors.blue, width: 2, style: BorderStyle.solid)) // Dotted not easily avail in Border, using solid blue for now
-                                  : null,
-                            ),
-                            child: MongolText(
-                              textToDisplay,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontFamily: 'Menksoft',
-                                color: isUnknown && override == null ? Colors.red : Colors.black,
-                                decoration: isUnknown && override == null ? TextDecoration.underline : null,
-                                decorationColor: Colors.red,
-                                decorationStyle: TextDecorationStyle.wavy,
-                              ),
-                            ),
+                        }
+
+                        spans.add(TextSpan(
+                          text: textToDisplay,
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontFamily: 'Menksoft',
+                            color: isUnknown && override == null ? Colors.red : Colors.black,
+                            decoration: isUnknown && override == null 
+                                ? TextDecoration.underline 
+                                : (isAmbiguous && override == null 
+                                    ? TextDecoration.underline 
+                                    : null),
+                            decorationColor: isUnknown && override == null ? Colors.red : Colors.blue,
+                            decorationStyle: isUnknown && override == null 
+                                ? TextDecorationStyle.wavy 
+                                : TextDecorationStyle.solid,
                           ),
-                        ),
-                      );
-                    }).toList(),
+                          recognizer: TapGestureRecognizer()
+                            ..onTapUp = (details) {
+                              if (isAmbiguous) {
+                                _showAmbiguityMenu(context, token, details.globalPosition);
+                              } else {
+                                _showFixDialog(token);
+                              }
+                            },
+                        ));
+                        
+                        return spans;
+                      }).toList(),
+                    ),
                   ),
                 ),
               ),

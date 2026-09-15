@@ -1,11 +1,13 @@
 class Token {
-  final String type; // 'word', 'space', 'punctuation', 'unknown'
+  final String type; // 'word', 'space', 'delimiter', 'unknown'
   final String original; // The Cyrillic text
+  final String? menksoft; // Converted text (e.g. vertical punctuation)
   final List<TokenOption> options; // Traditional translations
 
   Token({
     required this.type,
     required this.original,
+    this.menksoft,
     required this.options,
   });
 
@@ -13,6 +15,7 @@ class Token {
     return {
       'type': type,
       'original': original,
+      'menksoft': menksoft,
       'options': options.map((e) => e.toJson()).toList(),
     };
   }
@@ -21,9 +24,11 @@ class Token {
     return Token(
       type: json['type'] as String,
       original: json['original'] as String,
-      options: (json['options'] as List<dynamic>)
-          .map((e) => TokenOption.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      menksoft: json['menksoft'] as String?,
+      options: (json['options'] as List<dynamic>?)
+              ?.map((e) => TokenOption.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
     );
   }
 }

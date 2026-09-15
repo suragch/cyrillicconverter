@@ -1,30 +1,41 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:frontend/main.dart';
+import 'package:frontend/services/latin_ime.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('LatinIme Unit Tests', () {
+    test('Transliterates Latin characters into Menksoft codes', () {
+      final menksoft = LatinIme.latinToMenksoft('monggol');
+      expect(menksoft.isNotEmpty, true);
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      // Verify that Menksoft to Unicode works
+      final unicode = LatinIme.menksoftToUnicode(menksoft);
+      expect(unicode.isNotEmpty, true);
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('Handles MVS and FVS4 correctly', () {
+      final withMvs = LatinIme.latinToMenksoft('nom-a');
+      expect(withMvs.isNotEmpty, true);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      final withFvs4 = LatinIme.convertLatinToMongolianUnicode('h4');
+      expect(withFvs4.codeUnitAt(1), 0x180F); // Mongol.fvs4
+    });
+  });
+
+  group('Widget Tests', () {
+    testWidgets('ConverterScreen loads with input field and convert button', (tester) async {
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+
+      // Check title
+      expect(find.text('Кирилл ➜ ᠮᠣᠩᠭᠣᠯ'), findsOneWidget);
+
+      // Check input field
+      expect(find.byType(TextField), findsOneWidget);
+
+      // Check convert button
+      expect(find.text('Хөрвүүлэх'), findsOneWidget);
+    });
   });
 }

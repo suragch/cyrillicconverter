@@ -4,16 +4,34 @@ import 'dart:io';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart';
-import '../lib/token.dart'; // Though we are constructing JSON manually, good to have reference if we switch to using the class directly
 
-// Configure routes.
+import '../lib/auth_middleware.dart';
+import '../lib/database.dart';
+import '../lib/tokenizer.dart';
+
+late final AppDatabase _db;
+
+// Configure routes
 final _router = Router()
+  ..get('/health', _healthHandler)
   ..post('/echo', _echoHandler)
   ..post('/convert', _convertHandler)
-  ..post('/contribute', _contributeHandler);
+  ..post('/contribute', _contributeHandler)
+  ..post('/suggest', _contributeHandler)
+  ..get('/export/csv', _exportCsvHandler)
+  // Admin / Moderator endpoints
+  ..get('/admin/missing', _adminMissingHandler)
+  ..get('/admin/suggestions', _adminSuggestionsHandler)
+  ..post('/admin/suggestions/approve', _adminApproveHandler)
+  ..post('/admin/suggestions/reject', _adminRejectHandler)
+  ..post('/admin/words', _adminAddWordHandler);
 
-late final Database _db;
+Response _healthHandler(Request request) {
+  return Response.ok(
+    jsonEncode({'status': 'ok', 'timestamp': DateTime.now().toIso8601String()}),
+    headers: {'content-type': 'application/json'},
+  );
+}
 
 Future<Response> _echoHandler(Request request) async {
   final content = await request.readAsString();
@@ -28,119 +46,253 @@ Future<Response> _echoHandler(Request request) async {
   }
 }
 
-Future<Response> _contributeHandler(Request request) async {
-  final content = await request.readAsString();
-  try {
-    final json = jsonDecode(content);
-    final cyrillic = json['cyrillic'] as String?;
-    final menksoft = json['menksoft'] as String?;
-    final context = json['context'] as String? ?? '';
+const Map<String, String> _punctuationToMenksoft = {
+  '.': '\uE237', // Traditional Mongolian full stop
+  '。': '\uE237',
+  ',': '\uE236', // Traditional Mongolian comma
+  '،': '\uE236',
+  '?': '\uE251', // Vertical question mark
+  '!': '\uE250', // Vertical exclamation mark
+  ':': '\uE238', // Vertical colon
+  ';': '\uE252', // Vertical semicolon
+  '(': '\uE253', // Vertical left parenthesis
+  ')': '\uE254', // Vertical right parenthesis
+  '[': '\uE257', // Vertical left bracket
+  ']': '\uE258', // Vertical right bracket
+  '«': '\uE259', // Left double angle bracket
+  '»': '\uE25A', // Right double angle bracket
+  '“': '\uE259',
+  '”': '\uE25A',
+  '"': '\uE259',
+  '—': '\uE261', // Em dash
+  '–': '\uE260', // En dash
+  '...': '\uE235', // Ellipsis
+  '…': '\uE235',
+  '?!': '\uE24E',
+  '!?': '\uE24F',
+};
 
-    // Validate input
-    if (cyrillic == null || cyrillic.isEmpty) {
-      return Response.badRequest(body: jsonEncode({'error': 'cyrillic is required'}));
-    }
-    if (menksoft == null || menksoft.isEmpty) {
-      return Response.badRequest(body: jsonEncode({'error': 'menksoft is required'}));
-    }
-
-    // Insert into suggestions table
-    _db.execute(
-      'INSERT INTO suggestions (cyrillic, menksoft_code, context) VALUES (?, ?, ?)',
-      [cyrillic, menksoft, context],
-    );
-
-    return Response.ok(
-      jsonEncode({'success': true}),
-      headers: {'content-type': 'application/json'},
-    );
-  } catch (e) {
-    print('Error in /contribute: $e');
-    return Response.internalServerError(
-      body: jsonEncode({'error': 'Server error'}),
-    );
+String _convertDelimiter(String text) {
+  if (_punctuationToMenksoft.containsKey(text)) {
+    return _punctuationToMenksoft[text]!;
   }
+  final buffer = StringBuffer();
+  for (var i = 0; i < text.length; i++) {
+    final ch = text[i];
+    buffer.write(_punctuationToMenksoft[ch] ?? ch);
+  }
+  return buffer.toString();
 }
 
 Future<Response> _convertHandler(Request request) async {
   final content = await request.readAsString();
   try {
-    final json = jsonDecode(content);
-    final text = json['text'] as String;
-    
-    // Improved tokenizer: use splitMapJoin to preserve both words and spaces
-    final List<String> rawTokens = [];
-    text.splitMapJoin(
-      RegExp(r'\S+'),  // Match non-whitespace (words)
-      onMatch: (m) {
-        rawTokens.add(m.group(0)!);
-        return '';
-      },
-      onNonMatch: (nm) {
-        if (nm.isNotEmpty) rawTokens.add(nm);
-        return '';
-      },
-    );
-    
-    final List<Map<String, dynamic>> tokens = [];
-    
-    final stmtWord = _db.prepare('SELECT id FROM words WHERE cyrillic = ?');
-    final stmtDef = _db.prepare('SELECT menksoft_code, explanation, is_primary FROM definitions WHERE word_id = ?');
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final text = json['text'] as String? ?? '';
 
-    for (final raw in rawTokens) {
-      // Check if this token is whitespace
-      if (raw.trim().isEmpty) {
-        tokens.add({
+    final rawTokens = Tokenizer.tokenize(text);
+    final List<Map<String, dynamic>> resultTokens = [];
+
+    for (var i = 0; i < rawTokens.length; i++) {
+      final token = rawTokens[i];
+
+      if (token.type == TokenType.space) {
+        resultTokens.add({
           'type': 'space',
-          'original': raw,  // Preserve the actual whitespace
-          'options': []
+          'original': token.text,
+          'menksoft': ' ',
+          'options': [],
         });
-        continue;
-      }
-
-      final wordResult = stmtWord.select([raw]);
-      if (wordResult.isNotEmpty) {
-        final wordId = wordResult.first['id'];
-        final defResult = stmtDef.select([wordId]);
-        
-        final options = defResult.map((row) => {
-          'menksoft': row['menksoft_code'] as String,
-          'explanation': row['explanation'] as String?,
-          'isDefault': (row['is_primary'] as int) == 1,
-        }).toList();
-        
-        tokens.add({
-          'type': 'word',
-          'original': raw,
-          'options': options
+      } else if (token.type == TokenType.delimiter) {
+        resultTokens.add({
+          'type': 'delimiter',
+          'original': token.text,
+          'menksoft': _convertDelimiter(token.text),
+          'options': [],
         });
       } else {
-        // Log unknown word
-        _db.execute('INSERT OR IGNORE INTO unknown_logs (cyrillic) VALUES (?)', [raw]);
-        _db.execute('UPDATE unknown_logs SET frequency = frequency + 1 WHERE cyrillic = ?', [raw]);
+        // TokenType.word
+        final options = _db.lookupWord(token.text);
 
-        tokens.add({
-          'type': 'unknown',
-          'original': raw,
-          'options': []
-        });
+        if (options.isNotEmpty) {
+          resultTokens.add({
+            'type': 'word',
+            'original': token.text,
+            'options': options,
+          });
+        } else {
+          // Unknown word - extract a window of text for context
+          final start = (i - 4).clamp(0, rawTokens.length);
+          final end = (i + 5).clamp(0, rawTokens.length);
+          final contextSnippet = rawTokens.sublist(start, end).map((t) => t.text).join();
+
+          _db.logUnknownWord(token.text, context: contextSnippet);
+
+          resultTokens.add({
+            'type': 'unknown',
+            'original': token.text,
+            'options': [],
+          });
+        }
       }
     }
-    
-    stmtWord.dispose();
-    stmtDef.dispose();
 
     return Response.ok(
-      jsonEncode({'tokens': tokens}),
+      jsonEncode({'tokens': resultTokens}),
       headers: {'content-type': 'application/json'},
     );
-  } catch (e) {
-    print(e);
-    return Response.badRequest(body: 'Invalid JSON or Server Error');
+  } catch (e, stack) {
+    print('Error in /convert: $e\n$stack');
+    return Response.internalServerError(
+      body: jsonEncode({'error': 'Conversion failed: $e'}),
+      headers: {'content-type': 'application/json'},
+    );
   }
 }
 
-// Manual CORS Middleware
+Future<Response> _contributeHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = json['cyrillic'] as String?;
+    final menksoft = json['menksoft'] as String?;
+    final context = json['context'] as String? ?? '';
+    final auth = request.context['auth'] as AuthContext?;
+
+    if (cyrillic == null || cyrillic.trim().isEmpty) {
+      return Response.badRequest(body: jsonEncode({'error': 'cyrillic is required'}));
+    }
+    if (menksoft == null || menksoft.trim().isEmpty) {
+      return Response.badRequest(body: jsonEncode({'error': 'menksoft is required'}));
+    }
+
+    _db.addSuggestion(
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+      context: context,
+      submittedBy: auth?.user?.id ?? 'anonymous',
+    );
+
+    return Response.ok(
+      jsonEncode({'success': true, 'message': 'Suggestion submitted for review'}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    print('Error in /contribute: $e');
+    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
+Future<Response> _exportCsvHandler(Request request) async {
+  final rows = _db.db.select('''
+    SELECT w.cyrillic, d.menksoft_code, d.explanation, d.is_primary
+    FROM words w
+    JOIN definitions d ON w.id = d.word_id
+    ORDER BY w.cyrillic ASC, d.is_primary DESC;
+  ''');
+
+  final csv = StringBuffer('cyrillic,menksoft,explanation,is_primary\n');
+  for (final row in rows) {
+    final cyrillic = (row['cyrillic'] as String).replaceAll('"', '""');
+    final menksoft = (row['menksoft_code'] as String).replaceAll('"', '""');
+    final explanation = ((row['explanation'] as String?) ?? '').replaceAll('"', '""');
+    final isPrimary = row['is_primary'] as int;
+    csv.writeln('"$cyrillic","$menksoft","$explanation",$isPrimary');
+  }
+
+  return Response.ok(
+    csv.toString(),
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': 'attachment; filename="mongol_dictionary.csv"',
+    },
+  );
+}
+
+// Admin / Moderator Handlers
+
+Future<Response> _adminMissingHandler(Request request) async {
+  final limit = int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
+  final results = _db.getTopUnknownWords(limit: limit);
+  return Response.ok(
+    jsonEncode({'missing': results}),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+Future<Response> _adminSuggestionsHandler(Request request) async {
+  final limit = int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
+  final results = _db.getPendingSuggestions(limit: limit);
+  return Response.ok(
+    jsonEncode({'suggestions': results}),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+Future<Response> _adminApproveHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final id = json['id'] as int;
+    final auth = request.context['auth'] as AuthContext?;
+
+    _db.approveSuggestion(id, verifiedBy: auth?.user?.id ?? 'moderator');
+    return Response.ok(
+      jsonEncode({'success': true}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
+Future<Response> _adminRejectHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final id = json['id'] as int;
+    final reason = json['reason'] as String?;
+
+    _db.rejectSuggestion(id, reason: reason);
+    return Response.ok(
+      jsonEncode({'success': true}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
+Future<Response> _adminAddWordHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = json['cyrillic'] as String;
+    final menksoft = json['menksoft'] as String;
+    final explanation = json['explanation'] as String?;
+    final isPrimary = json['isPrimary'] as bool? ?? true;
+    final auth = request.context['auth'] as AuthContext?;
+
+    final wordId = _db.addWordDefinition(
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+      explanation: explanation,
+      isPrimary: isPrimary,
+      verifiedBy: auth?.user?.id ?? 'moderator',
+    );
+
+    // Also remove from unknown_logs if it was there
+    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [cyrillic.trim().toLowerCase()]);
+
+    return Response.ok(
+      jsonEncode({'success': true, 'wordId': wordId}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
 Middleware corsMiddleware() {
   return (Handler handler) {
     return (Request request) async {
@@ -148,35 +300,35 @@ Middleware corsMiddleware() {
         return Response.ok('', headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Origin, Content-Type',
+          'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
         });
       }
       final response = await handler(request);
       return response.change(headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Origin, Content-Type',
+        'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
       });
     };
   };
 }
 
 void main(List<String> args) async {
-  // Initialize DB
-  _db = sqlite3.open('dictionary.db');
-  print('Database opened.');
+  final dbPath = Platform.environment['DB_PATH'] ?? 'dictionary.db';
+  _db = AppDatabase.open(dbPath);
+  _db.initSchema();
+  print('SQLite database opened at $dbPath.');
 
-  // Use any available host or container IP (usually `0.0.0.0`).
   final ip = InternetAddress.anyIPv4;
+  final port = int.parse(Platform.environment['PORT'] ?? '8080');
+  final pbUrl = Platform.environment['POCKETBASE_URL'] ?? 'https://cyrillic.suragch.dev';
 
-  // Configure a pipeline that logs requests.
-  final handler = Pipeline()
+  final pipeline = Pipeline()
       .addMiddleware(logRequests())
-      .addMiddleware(corsMiddleware()) // Add CORS headers
+      .addMiddleware(corsMiddleware())
+      .addMiddleware(pocketBaseAuth(pbUrl: pbUrl))
       .addHandler(_router.call);
 
-  // For running in containers, we respect the PORT environment variable.
-  final port = int.parse(Platform.environment['PORT'] ?? '8080');
-  final server = await serve(handler, ip, port);
+  final server = await serve(pipeline, ip, port);
   print('Server listening on port ${server.port}');
 }

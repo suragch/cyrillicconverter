@@ -12,6 +12,145 @@ class LatinIme {
     return convertMenksoftToUnicode(menksoft);
   }
 
+  /// Converts Menksoft code to Latin transcription.
+  static String menksoftToLatin(String menksoft) {
+    final unicode = convertMenksoftToUnicode(menksoft);
+    return convertMongolianUnicodeToLatin(unicode);
+  }
+
+  /// Converts standard Mongolian Unicode to Latin transcription.
+  static String convertMongolianUnicodeToLatin(String unicodeText) {
+    final buffer = StringBuffer();
+    for (var i = 0; i < unicodeText.length; i++) {
+      final codeUnit = unicodeText.codeUnitAt(i);
+      switch (codeUnit) {
+        case Mongol.a:
+          buffer.write('a');
+          break;
+        case Mongol.e:
+          buffer.write('e');
+          break;
+        case Mongol.i:
+          buffer.write('i');
+          break;
+        case Mongol.o:
+          buffer.write('q');
+          break;
+        case Mongol.u:
+          buffer.write('v');
+          break;
+        case Mongol.oe:
+          buffer.write('o');
+          break;
+        case Mongol.ue:
+          buffer.write('u');
+          break;
+        case Mongol.ee:
+          buffer.write('E');
+          break;
+        case Mongol.na:
+          buffer.write('n');
+          break;
+        case Mongol.ang:
+          buffer.write('N');
+          break;
+        case Mongol.ba:
+          buffer.write('b');
+          break;
+        case Mongol.pa:
+          buffer.write('p');
+          break;
+        case Mongol.qa:
+          buffer.write('h');
+          break;
+        case Mongol.ga:
+          buffer.write('g');
+          break;
+        case Mongol.ma:
+          buffer.write('m');
+          break;
+        case Mongol.la:
+          buffer.write('l');
+          break;
+        case Mongol.sa:
+          buffer.write('s');
+          break;
+        case Mongol.sha:
+          buffer.write('x');
+          break;
+        case Mongol.ta:
+          buffer.write('t');
+          break;
+        case Mongol.da:
+          buffer.write('d');
+          break;
+        case Mongol.cha:
+          buffer.write('c');
+          break;
+        case Mongol.ja:
+          buffer.write('j');
+          break;
+        case Mongol.ya:
+          buffer.write('y');
+          break;
+        case Mongol.ra:
+          buffer.write('r');
+          break;
+        case Mongol.wa:
+          buffer.write('w');
+          break;
+        case Mongol.fa:
+          buffer.write('f');
+          break;
+        case Mongol.ka:
+          buffer.write('k');
+          break;
+        case Mongol.kha:
+          buffer.write('K');
+          break;
+        case Mongol.tsa:
+          buffer.write('C');
+          break;
+        case Mongol.za:
+          buffer.write('z');
+          break;
+        case Mongol.haa:
+          buffer.write('H');
+          break;
+        case Mongol.zra:
+          buffer.write('R');
+          break;
+        case Mongol.lha:
+          buffer.write('L');
+          break;
+        case Mongol.zhi:
+          buffer.write('Z');
+          break;
+        case Mongol.chi:
+          buffer.write('Q');
+          break;
+        case Mongol.mvs:
+          buffer.write('-');
+          break;
+        case Mongol.fvs1:
+          buffer.write('1');
+          break;
+        case Mongol.fvs2:
+          buffer.write('2');
+          break;
+        case Mongol.fvs3:
+          buffer.write('3');
+          break;
+        case Mongol.fvs4:
+          buffer.write('4');
+          break;
+        default:
+          buffer.write(String.fromCharCode(codeUnit));
+      }
+    }
+    return buffer.toString();
+  }
+
   static const Map<String, String> _punctuationMap = {
     '.': '\uE237', // Traditional Mongolian full stop
     '。': '\uE237',

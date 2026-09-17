@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:pocketbase/pocketbase.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -10,17 +11,23 @@ import '../lib/database.dart';
 import '../lib/tokenizer.dart';
 
 late final AppDatabase _db;
+late final String _pbUrl;
 
 // Configure routes
 final _router = Router()
   ..get('/health', _healthHandler)
+  ..post('/auth/login', _loginHandler)
+  ..get('/auth/me', _authMeHandler)
   ..post('/echo', _echoHandler)
   ..post('/convert', _convertHandler)
   ..post('/contribute', _contributeHandler)
   ..post('/suggest', _contributeHandler)
   ..get('/export/csv', _exportCsvHandler)
   // Admin / Moderator endpoints
+  ..get('/admin/words/check', _adminCheckWordHandler)
+  ..get('/words/check', _adminCheckWordHandler)
   ..get('/admin/missing', _adminMissingHandler)
+  ..post('/admin/missing/reject', _adminRejectMissingHandler)
   ..get('/admin/suggestions', _adminSuggestionsHandler)
   ..post('/admin/suggestions/approve', _adminApproveHandler)
   ..post('/admin/suggestions/reject', _adminRejectHandler)
@@ -29,6 +36,77 @@ final _router = Router()
 Response _healthHandler(Request request) {
   return Response.ok(
     jsonEncode({'status': 'ok', 'timestamp': DateTime.now().toIso8601String()}),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+Future<Response> _loginHandler(Request request) async {
+  try {
+    final content = await request.readAsString();
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final email = (json['email'] as String?)?.trim() ?? '';
+    final password = json['password'] as String? ?? '';
+
+    if (email.isEmpty || password.isEmpty) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Email and password are required'}),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+
+    final pb = PocketBase(_pbUrl);
+    final authData = await pb.collection('users').authWithPassword(email, password);
+    final user = authData.record;
+    final role = user.data['role'] as String? ?? '';
+
+    return Response.ok(
+      jsonEncode({
+        'token': authData.token,
+        'user': {
+          'id': user.id,
+          'email': user.getStringValue('email').isNotEmpty ? user.getStringValue('email') : email,
+          'role': role,
+        },
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response(
+      401,
+      body: jsonEncode({'error': 'Имэйл эсвэл нууц үг буруу байна (Invalid email or password)'}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+}
+
+Response _authMeHandler(Request request) {
+  final auth = request.context['auth'] as AuthContext?;
+  if (auth == null || auth.user == null) {
+    return Response(
+      401,
+      body: jsonEncode({'error': 'Not authenticated'}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  final user = auth.user!;
+  final role = user.data['role'] as String? ?? '';
+  final email = user.getStringValue('email');
+  final id = user.id;
+
+  return Response.ok(
+    jsonEncode({
+      'id': id,
+      'email': email,
+      'role': role,
+      'isModerator': auth.isModerator,
+      if (auth.token != null) 'token': auth.token,
+      'user': {
+        'id': id,
+        'email': email,
+        'role': role,
+      },
+    }),
     headers: {'content-type': 'application/json'},
   );
 }
@@ -229,16 +307,50 @@ Future<Response> _adminSuggestionsHandler(Request request) async {
   );
 }
 
+Future<Response> _adminCheckWordHandler(Request request) async {
+  final cyrillic = request.url.queryParameters['cyrillic']?.trim().toLowerCase() ?? '';
+  if (cyrillic.isEmpty) {
+    return Response.ok(
+      jsonEncode({'exists': false, 'definitions': []}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  final defs = _db.lookupWord(cyrillic);
+  return Response.ok(
+    jsonEncode({
+      'cyrillic': cyrillic,
+      'exists': defs.isNotEmpty,
+      'definitions': defs,
+    }),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
 Future<Response> _adminApproveHandler(Request request) async {
   final content = await request.readAsString();
   try {
     final json = jsonDecode(content) as Map<String, dynamic>;
     final id = json['id'] as int;
-    final auth = request.context['auth'] as AuthContext?;
+    final cyrillic = json['cyrillic'] as String?;
+    final menksoft = json['menksoft'] as String?;
+    final explanation = json['explanation'] as String?;
 
-    _db.approveSuggestion(id, verifiedBy: auth?.user?.id ?? 'moderator');
+    final auth = request.context['auth'] as AuthContext?;
+    final verifiedBy = auth?.user?.id ??
+        auth?.user?.getStringValue('email') ??
+        json['moderatorId'] as String? ??
+        'moderator';
+
+    _db.approveSuggestion(
+      id,
+      verifiedBy: verifiedBy,
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+      explanation: explanation,
+    );
     return Response.ok(
-      jsonEncode({'success': true}),
+      jsonEncode({'success': true, 'verifiedBy': verifiedBy}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
@@ -253,9 +365,43 @@ Future<Response> _adminRejectHandler(Request request) async {
     final id = json['id'] as int;
     final reason = json['reason'] as String?;
 
-    _db.rejectSuggestion(id, reason: reason);
+    final auth = request.context['auth'] as AuthContext?;
+    final reviewedBy = auth?.user?.id ??
+        auth?.user?.getStringValue('email') ??
+        json['moderatorId'] as String? ??
+        'moderator';
+
+    _db.rejectSuggestion(id, reason: reason, reviewedBy: reviewedBy);
     return Response.ok(
-      jsonEncode({'success': true}),
+      jsonEncode({'success': true, 'reviewedBy': reviewedBy}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
+Future<Response> _adminRejectMissingHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = (json['cyrillic'] as String?)?.trim() ?? '';
+    final reason = (json['reason'] as String?)?.trim() ?? 'rejected';
+
+    if (cyrillic.isEmpty) {
+      return Response.badRequest(body: jsonEncode({'error': 'Cyrillic word is required'}));
+    }
+
+    final auth = request.context['auth'] as AuthContext?;
+    final reviewedBy = auth?.user?.id ??
+        auth?.user?.getStringValue('email') ??
+        json['moderatorId'] as String? ??
+        'moderator';
+
+    _db.rejectMissingWord(cyrillic, reason: reason, reviewedBy: reviewedBy);
+
+    return Response.ok(
+      jsonEncode({'success': true, 'reviewedBy': reviewedBy}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
@@ -321,12 +467,12 @@ void main(List<String> args) async {
 
   final ip = InternetAddress.anyIPv4;
   final port = int.parse(Platform.environment['PORT'] ?? '8080');
-  final pbUrl = Platform.environment['POCKETBASE_URL'] ?? 'https://cyrillic.suragch.dev';
+  _pbUrl = Platform.environment['POCKETBASE_URL'] ?? 'http://127.0.0.1:8090';
 
   final pipeline = Pipeline()
       .addMiddleware(logRequests())
       .addMiddleware(corsMiddleware())
-      .addMiddleware(pocketBaseAuth(pbUrl: pbUrl))
+      .addMiddleware(pocketBaseAuth(pbUrl: _pbUrl))
       .addHandler(_router.call);
 
   final server = await serve(pipeline, ip, port);

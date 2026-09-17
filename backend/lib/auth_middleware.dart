@@ -5,8 +5,9 @@ import 'package:pocketbase/pocketbase.dart';
 class AuthContext {
   final RecordModel? user;
   final bool isModerator;
+  final String? token;
 
-  const AuthContext({this.user, this.isModerator = false});
+  const AuthContext({this.user, this.isModerator = false, this.token});
 }
 
 Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
@@ -27,12 +28,16 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
         pb.authStore.save(token, null);
         final authRecord = await pb.collection('users').authRefresh();
         final user = authRecord.record;
-        final role = user?.data['role'] as String? ?? '';
+        final role = user.data['role'] as String? ?? '';
         // If user is valid and role is moderator/admin (or any authenticated user if role not explicitly set)
         final isModerator = role == 'moderator' || role == 'admin' || user != null;
 
         return innerHandler(request.change(context: {
-          'auth': AuthContext(user: user, isModerator: isModerator),
+          'auth': AuthContext(
+            user: user,
+            isModerator: isModerator,
+            token: authRecord.token,
+          ),
         }));
       } catch (e) {
         return innerHandler(request.change(context: {'auth': const AuthContext()}));

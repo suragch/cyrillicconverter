@@ -54,11 +54,30 @@ class AppDatabase {
         submitted_by TEXT,
         status TEXT DEFAULT 'pending',
         moderator_note TEXT,
+        reviewed_by TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         reviewed_at TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
+
+      CREATE TABLE IF NOT EXISTS rejected_words (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cyrillic TEXT NOT NULL,
+        menksoft_code TEXT,
+        reason TEXT NOT NULL,
+        details TEXT,
+        source TEXT,
+        source_id INTEGER,
+        submitted_by TEXT,
+        reviewed_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_rejected_words_cyrillic ON rejected_words(cyrillic);
+      CREATE INDEX IF NOT EXISTS idx_rejected_words_reason ON rejected_words(reason);
     ''');
+    try {
+      db.execute('ALTER TABLE suggestions ADD COLUMN reviewed_by TEXT;');
+    } catch (_) {}
   }
 
   /// Looks up definitions for a Cyrillic word.
@@ -175,37 +194,105 @@ class AppDatabase {
   }
 
   /// Moderator review: Approve suggestion.
-  void approveSuggestion(int suggestionId, {String? verifiedBy}) {
+  void approveSuggestion(
+    int suggestionId, {
+    String? verifiedBy,
+    String? cyrillic,
+    String? menksoft,
+    String? explanation,
+  }) {
     final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [suggestionId]);
     if (rows.isEmpty) return;
     final sug = rows.first;
-    final cyrillic = sug['cyrillic'] as String;
-    final menksoft = sug['menksoft_code'] as String;
-    final context = sug['context'] as String?;
+    final finalCyrillic = (cyrillic != null && cyrillic.trim().isNotEmpty)
+        ? cyrillic.trim()
+        : (sug['cyrillic'] as String);
+    final finalMenksoft = (menksoft != null && menksoft.trim().isNotEmpty)
+        ? menksoft.trim()
+        : (sug['menksoft_code'] as String);
+    final finalExplanation = explanation ?? (sug['context'] as String?);
 
     addWordDefinition(
-      cyrillic: cyrillic,
-      menksoft: menksoft,
-      explanation: context,
+      cyrillic: finalCyrillic,
+      menksoft: finalMenksoft,
+      explanation: finalExplanation,
       isPrimary: true,
       verifiedBy: verifiedBy,
     );
 
     db.execute(
-      "UPDATE suggestions SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [suggestionId],
+      "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [finalCyrillic, finalMenksoft, finalExplanation, verifiedBy, suggestionId],
     );
 
     // Also remove from unknown_logs if it was logged
-    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [cyrillic.trim().toLowerCase()]);
+    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [finalCyrillic.trim().toLowerCase()]);
   }
 
-  /// Moderator review: Reject suggestion.
-  void rejectSuggestion(int suggestionId, {String? reason}) {
+  /// Records a rejected word into the rejected_words table for future study.
+  void logRejectedWord({
+    required String cyrillic,
+    String? menksoft,
+    required String reason,
+    String? details,
+    String? source,
+    int? sourceId,
+    String? submittedBy,
+    String? reviewedBy,
+  }) {
+    db.execute('''
+      INSERT INTO rejected_words (cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', [
+      cyrillic.trim(),
+      menksoft?.trim(),
+      reason.trim(),
+      details?.trim(),
+      source,
+      sourceId,
+      submittedBy,
+      reviewedBy,
+    ]);
+  }
+
+  /// Moderator review: Reject suggestion and log to rejected_words table.
+  void rejectSuggestion(int suggestionId, {String? reason, String? reviewedBy}) {
+    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [suggestionId]);
+    if (rows.isNotEmpty) {
+      final sug = rows.first;
+      logRejectedWord(
+        cyrillic: sug['cyrillic'] as String,
+        menksoft: sug['menksoft_code'] as String?,
+        reason: reason ?? 'rejected',
+        details: sug['context'] as String?,
+        source: 'suggestion',
+        sourceId: suggestionId,
+        submittedBy: sug['submitted_by'] as String?,
+        reviewedBy: reviewedBy,
+      );
+    }
+
     db.execute(
-      "UPDATE suggestions SET status = 'rejected', moderator_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [reason, suggestionId],
+      "UPDATE suggestions SET status = 'rejected', moderator_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [reason, reviewedBy, suggestionId],
     );
+  }
+
+  /// Moderator review: Reject missing word from unknown_logs and log to rejected_words table.
+  void rejectMissingWord(String cyrillic, {required String reason, String? reviewedBy}) {
+    final normalized = cyrillic.trim().toLowerCase();
+    final rows = db.select('SELECT * FROM unknown_logs WHERE cyrillic = ?', [normalized]);
+    final lastContext = rows.isNotEmpty ? (rows.first['last_context'] as String?) : null;
+
+    logRejectedWord(
+      cyrillic: cyrillic.trim(),
+      reason: reason,
+      details: lastContext,
+      source: 'unknown_log',
+      reviewedBy: reviewedBy,
+    );
+
+    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [normalized]);
   }
 
   void close() {

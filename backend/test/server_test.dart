@@ -139,4 +139,18 @@ void main() {
     expect(response.body, contains('cyrillic,menksoft,explanation,is_primary'));
     expect(response.body, contains('сайн'));
   });
+
+  test('Word existence check endpoint /admin/words/check', () async {
+    final resKnown = await get(Uri.parse('$host/admin/words/check?cyrillic=сайн'));
+    expect(resKnown.statusCode, 200);
+    final jsonKnown = jsonDecode(resKnown.body);
+    expect(jsonKnown['exists'], true);
+    expect((jsonKnown['definitions'] as List).isNotEmpty, true);
+
+    final resUnknown = await get(Uri.parse('$host/admin/words/check?cyrillic=үл_байгаа_үг'));
+    expect(resUnknown.statusCode, 200);
+    final jsonUnknown = jsonDecode(resUnknown.body);
+    expect(jsonUnknown['exists'], false);
+    expect((jsonUnknown['definitions'] as List).isEmpty, true);
+  });
 }

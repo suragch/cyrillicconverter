@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
-import 'package:pocketbase/pocketbase.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/latin_ime.dart';
 import 'token.dart';
@@ -50,8 +50,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
   late final MongolConverterController _outputController;
   final GlobalKey _fieldKey = GlobalKey();
 
+  static const String _authTokenStorageKey = 'cyrillic_converter_auth_token';
   final String _serverUrl = 'http://localhost:8080';
-  final PocketBase _pb = PocketBase('https://cyrillic.suragch.dev');
+  String? _authToken;
+  Map<String, dynamic>? _currentUser;
+  bool _isRestoringSession = false;
 
   List<Token> _tokens = [];
   List<TokenSpanInfo> _tokenSpanInfos = [];
@@ -70,6 +73,88 @@ class _ConverterScreenState extends State<ConverterScreen> {
     _outputController = MongolConverterController(
       tokenSpansProvider: () => _tokenSpanInfos,
     );
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString(_authTokenStorageKey);
+      if (savedToken == null || savedToken.isEmpty) {
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isRestoringSession = true;
+        });
+      }
+
+      // Security practice: Always validate saved token with the server
+      final response = await http.get(
+        Uri.parse('$_serverUrl/auth/me'),
+        headers: {
+          'Authorization': 'Bearer $savedToken',
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final user = (data['user'] as Map<String, dynamic>?) ?? {
+          'id': data['id'],
+          'email': data['email'],
+          'role': data['role'],
+        };
+        final newToken = data['token'] as String? ?? savedToken;
+        if (newToken != savedToken) {
+          await prefs.setString(_authTokenStorageKey, newToken);
+        }
+
+        if (mounted) {
+          setState(() {
+            _authToken = newToken;
+            _currentUser = user;
+          });
+        }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Security practice: Evict expired or revoked tokens immediately
+        await prefs.remove(_authTokenStorageKey);
+        if (mounted) {
+          setState(() {
+            _authToken = null;
+            _currentUser = null;
+          });
+        }
+      }
+    } catch (_) {
+      // Server unreachable or network error: do not grant access without server verification
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRestoringSession = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    final email = _currentUser?['email'] as String? ?? 'Хэрэглэгч';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_authTokenStorageKey);
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _authToken = null;
+        _currentUser = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$email системээс гарлаа'),
+        ),
+      );
+    }
   }
 
   @override
@@ -79,7 +164,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     super.dispose();
   }
 
-  bool get _isLoggedIn => _pb.authStore.isValid;
+  bool get _isLoggedIn => _authToken != null && _authToken!.isNotEmpty;
 
   Future<void> _convert() async {
     final text = _inputTextController.text.trim();
@@ -312,7 +397,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     try {
       final headers = {'Content-Type': 'application/json'};
       if (_isLoggedIn) {
-        headers['Authorization'] = 'Bearer ${_pb.authStore.token}';
+        headers['Authorization'] = 'Bearer $_authToken';
       }
 
       await http.post(
@@ -517,8 +602,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Нэвтрэх (PocketBase)'),
+      builder: (ctx) => SelectionArea(
+        child: AlertDialog(
+          title: const Text('Нэвтрэх'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -548,21 +634,47 @@ class _ConverterScreenState extends State<ConverterScreen> {
           ElevatedButton(
             onPressed: () async {
               try {
-                await _pb.collection('users').authWithPassword(
-                  emailController.text.trim(),
-                  passwordController.text,
+                final response = await http.post(
+                  Uri.parse('$_serverUrl/auth/login'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    'email': emailController.text.trim(),
+                    'password': passwordController.text,
+                  }),
                 );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                }
-                if (mounted) {
-                  setState(() {});
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Амжилттай нэвтэрлээ'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+
+                if (response.statusCode == 200) {
+                  final data = jsonDecode(response.body) as Map<String, dynamic>;
+                  final token = data['token'] as String;
+                  final user = data['user'] as Map<String, dynamic>?;
+
+                  try {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString(_authTokenStorageKey, token);
+                  } catch (_) {}
+
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                  }
+                  if (mounted) {
+                    setState(() {
+                      _authToken = token;
+                      _currentUser = user;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Амжилттай нэвтэрлээ'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } else {
+                  String message = 'Нэвтрэх амжилтгүй боллоо';
+                  try {
+                    final err = jsonDecode(response.body);
+                    if (err['error'] != null) message = err['error'].toString();
+                  } catch (_) {}
+                  throw Exception(message);
                 }
               } catch (e) {
                 if (mounted) {
@@ -578,14 +690,16 @@ class _ConverterScreenState extends State<ConverterScreen> {
             child: const Text('Нэвтрэх'),
           ),
         ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return SelectionArea(
+      child: Scaffold(
+        appBar: AppBar(
         title: const Text('Кирилл ➜ ᠮᠣᠩᠭᠣᠯ'),
         actions: [
           // Encoding selector
@@ -613,7 +727,26 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ],
           ),
           const SizedBox(width: 8),
-          if (_isLoggedIn) ...[
+          if (_isRestoringSession) ...[
+            const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ] else if (_isLoggedIn) ...[
+            if (_currentUser?['email'] != null)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                  child: Text(
+                    _currentUser!['email'] as String,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ),
+              ),
             TextButton.icon(
               icon: const Icon(Icons.admin_panel_settings),
               label: const Text('Модератор'),
@@ -623,17 +756,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   MaterialPageRoute(
                     builder: (ctx) => ModeratorPage(
                       serverUrl: _serverUrl,
-                      authToken: _pb.authStore.token,
+                      authToken: _authToken,
+                      moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
                     ),
                   ),
                 );
               },
             ),
             TextButton(
-              onPressed: () {
-                _pb.authStore.clear();
-                setState(() {});
-              },
+              onPressed: _logout,
               child: const Text('Гарах'),
             ),
           ] else
@@ -756,7 +887,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   /// Single unified vertical output:
@@ -767,45 +899,47 @@ class _ConverterScreenState extends State<ConverterScreen> {
   /// - Click / Right-click on any word allows flagging error or suggesting correction
   /// - Real-time hover cursor changes to pointer (SystemMouseCursors.click) over interactive words
   Widget _buildUnifiedOutput() {
-    return Actions(
-      actions: {
-        CopySelectionTextIntent: CallbackAction<CopySelectionTextIntent>(
-          onInvoke: (intent) {
-            _copyToClipboard();
-            return null;
-          },
-        ),
-      },
-      child: MouseRegion(
-        cursor: _currentCursor,
-        onHover: (event) => _handleHover(event.position),
-        onExit: (_) {
-          _outputController.setHoveredTokenIndex(null);
-          if (_currentCursor != SystemMouseCursors.basic) {
-            setState(() => _currentCursor = SystemMouseCursors.basic);
-          }
+    return SelectionContainer.disabled(
+      child: Actions(
+        actions: {
+          CopySelectionTextIntent: CallbackAction<CopySelectionTextIntent>(
+            onInvoke: (intent) {
+              _copyToClipboard();
+              return null;
+            },
+          ),
         },
-        child: Listener(
-          onPointerDown: (event) => _lastPointerPosition = event.position,
-          child: GestureDetector(
-            onSecondaryTapUp: (details) => _handleSecondaryTap(details.globalPosition),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: MongolTextField(
-                key: _fieldKey,
-                controller: _outputController,
-                readOnly: true,
-                maxLines: null,
-                mouseCursor: _currentCursor,
-                onTap: _handleTextFieldTap,
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontFamily: 'Menksoft',
-                  color: Colors.black87,
-                ),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
+        child: MouseRegion(
+          cursor: _currentCursor,
+          onHover: (event) => _handleHover(event.position),
+          onExit: (_) {
+            _outputController.setHoveredTokenIndex(null);
+            if (_currentCursor != SystemMouseCursors.basic) {
+              setState(() => _currentCursor = SystemMouseCursors.basic);
+            }
+          },
+          child: Listener(
+            onPointerDown: (event) => _lastPointerPosition = event.position,
+            child: GestureDetector(
+              onSecondaryTapUp: (details) => _handleSecondaryTap(details.globalPosition),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: MongolTextField(
+                  key: _fieldKey,
+                  controller: _outputController,
+                  readOnly: true,
+                  maxLines: null,
+                  mouseCursor: _currentCursor,
+                  onTap: _handleTextFieldTap,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontFamily: 'Menksoft',
+                    color: Colors.black87,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
               ),
             ),

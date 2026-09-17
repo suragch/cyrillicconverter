@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mongol/mongol.dart';
 import '../../services/latin_ime.dart';
 
@@ -104,8 +105,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   Widget build(BuildContext context) {
     final isCyrillicFixed = widget.initialCyrillic != null;
 
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+    return SelectionArea(
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680, maxHeight: 720),
         child: Padding(
@@ -163,19 +165,56 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                         if (isCyrillicFixed)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 6.0),
-                            child: Text(
-                              'Кирилл: ${widget.initialCyrillic}',
-                              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Кирилл: ${widget.initialCyrillic}',
+                                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  tooltip: 'Кирилл үгийг хуулах',
+                                  splashRadius: 18,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: widget.initialCyrillic ?? ''));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Кирилл үг хуулагдлаа'),
+                                        duration: Duration(seconds: 1),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
                           )
                         else
                           TextField(
                             controller: _cyrillicController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Кирилл үг',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              border: const OutlineInputBorder(),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              suffixIcon: _cyrillicController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      tooltip: 'Кирилл үгийг хуулах',
+                                      onPressed: () {
+                                        Clipboard.setData(ClipboardData(text: _cyrillicController.text));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Кирилл үг хуулагдлаа'),
+                                            duration: Duration(seconds: 1),
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  : null,
                             ),
+                            onChanged: (_) => setState(() {}),
                           ),
                         const SizedBox(height: 8),
                         TextField(
@@ -217,7 +256,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
               // Collapsible Virtual Keyboard & Transliteration Table
               if (_showKeyboard)
                 Flexible(
-                  child: Container(
+                  child: SelectionContainer.disabled(
+                    child: Container(
                     decoration: BoxDecoration(
                       color: Colors.grey.shade50,
                       borderRadius: BorderRadius.circular(8),
@@ -296,6 +336,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                     ),
                   ),
                 ),
+              ),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -321,7 +362,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildKeyboardCategory(String label, List<(String key, String display)> items) {

@@ -7,6 +7,7 @@ import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../lib/auth_middleware.dart';
+import '../lib/cyrillic_validator.dart';
 import '../lib/database.dart';
 import '../lib/tokenizer.dart';
 
@@ -204,7 +205,10 @@ Future<Response> _convertHandler(Request request) async {
           final end = (i + 5).clamp(0, rawTokens.length);
           final contextSnippet = rawTokens.sublist(start, end).map((t) => t.text).join();
 
-          _db.logUnknownWord(token.text, context: contextSnippet);
+          // Only accept and log strictly Cyrillic text
+          if (CyrillicValidator.isCyrillicWord(token.text)) {
+            _db.logUnknownWord(token.text, context: contextSnippet);
+          }
 
           resultTokens.add({
             'type': 'unknown',
@@ -239,6 +243,12 @@ Future<Response> _contributeHandler(Request request) async {
 
     if (cyrillic == null || cyrillic.trim().isEmpty) {
       return Response.badRequest(body: jsonEncode({'error': 'cyrillic is required'}));
+    }
+    if (!CyrillicValidator.isCyrillicWord(cyrillic)) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)'}),
+        headers: {'content-type': 'application/json'},
+      );
     }
     if (menksoft == null || menksoft.trim().isEmpty) {
       return Response.badRequest(body: jsonEncode({'error': 'menksoft is required'}));
@@ -291,7 +301,8 @@ Future<Response> _exportCsvHandler(Request request) async {
 
 Future<Response> _adminMissingHandler(Request request) async {
   final limit = int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
-  final results = _db.getTopUnknownWords(limit: limit);
+  final minFrequency = int.tryParse(request.url.queryParameters['min_frequency'] ?? '1') ?? 1;
+  final results = _db.getTopUnknownWords(limit: limit, minFrequency: minFrequency);
   return Response.ok(
     jsonEncode({'missing': results}),
     headers: {'content-type': 'application/json'},
@@ -311,17 +322,19 @@ Future<Response> _adminCheckWordHandler(Request request) async {
   final cyrillic = request.url.queryParameters['cyrillic']?.trim().toLowerCase() ?? '';
   if (cyrillic.isEmpty) {
     return Response.ok(
-      jsonEncode({'exists': false, 'definitions': []}),
+      jsonEncode({'exists': false, 'definitions': [], 'rejectionHistory': []}),
       headers: {'content-type': 'application/json'},
     );
   }
 
   final defs = _db.lookupWord(cyrillic);
+  final rejectionHistory = _db.getRejectionHistory(cyrillic);
   return Response.ok(
     jsonEncode({
       'cyrillic': cyrillic,
       'exists': defs.isNotEmpty,
       'definitions': defs,
+      'rejectionHistory': rejectionHistory,
     }),
     headers: {'content-type': 'application/json'},
   );

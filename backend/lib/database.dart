@@ -136,11 +136,11 @@ class AppDatabase {
     ''', [cyrillic.trim(), menksoft.trim(), context?.trim(), submittedBy]);
   }
 
-  /// Gets the top unknown words ordered by frequency.
-  List<Map<String, dynamic>> getTopUnknownWords({int limit = 100}) {
+  /// Gets the top unknown words ordered by frequency, optionally filtered by minimum frequency.
+  List<Map<String, dynamic>> getTopUnknownWords({int limit = 100, int minFrequency = 1}) {
     final results = db.select(
-      'SELECT id, cyrillic, frequency, last_context, last_seen FROM unknown_logs ORDER BY frequency DESC LIMIT ?',
-      [limit],
+      'SELECT id, cyrillic, frequency, last_context, last_seen FROM unknown_logs WHERE frequency >= ? ORDER BY frequency DESC, last_seen DESC LIMIT ?',
+      [minFrequency, limit],
     );
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -293,6 +293,17 @@ class AppDatabase {
     );
 
     db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [normalized]);
+  }
+
+  /// Returns previous rejections for a word from rejected_words for informational display.
+  List<Map<String, dynamic>> getRejectionHistory(String cyrillic) {
+    final normalized = cyrillic.trim().toLowerCase();
+    if (normalized.isEmpty) return [];
+    final results = db.select(
+      'SELECT id, cyrillic, menksoft_code, reason, details, reviewed_by, created_at FROM rejected_words WHERE LOWER(cyrillic) = ? ORDER BY created_at DESC',
+      [normalized],
+    );
+    return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
   void close() {

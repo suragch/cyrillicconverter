@@ -37,6 +37,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
   int _missingIndex = 0;
   bool _isCheckingMissingWord = false;
   Map<String, dynamic>? _missingWordCheckResult;
+  int _minFrequency = 2; // Default to frequency >= 2
 
   bool _isLoading = false;
   String? _error;
@@ -56,6 +57,15 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     return headers;
   }
 
+  Future<void> _changeMinFrequency(int newMinFreq) async {
+    if (_minFrequency == newMinFreq) return;
+    setState(() {
+      _minFrequency = newMinFreq;
+      _missingIndex = 0;
+    });
+    await _loadData();
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -64,7 +74,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     try {
       final missingRes = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/missing?limit=100'),
+        Uri.parse('${widget.serverUrl}/admin/missing?limit=100&min_frequency=$_minFrequency'),
         headers: _headers,
       );
       final suggRes = await http.get(
@@ -567,6 +577,73 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     );
   }
 
+  Widget _buildFrequencyFilterSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _minFrequency,
+          isDense: true,
+          style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w600),
+          items: const [
+            DropdownMenuItem(
+              value: 2,
+              child: Text('Давтамж ≥ 2 (Зөвлөмжтэй)'),
+            ),
+            DropdownMenuItem(
+              value: 1,
+              child: Text('Бүгд (≥ 1)'),
+            ),
+            DropdownMenuItem(
+              value: 5,
+              child: Text('Их давтамжтай (≥ 5)'),
+            ),
+          ],
+          onChanged: (val) {
+            if (val != null) _changeMinFrequency(val);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRejectionHistoryBadge(List<dynamic> history) {
+    if (history.isEmpty) return const SizedBox.shrink();
+    final first = history.first as Map<String, dynamic>;
+    final reason = first['reason'] as String? ?? 'Татгалзсан';
+    final count = history.length;
+    final reviewer = first['reviewed_by'] as String?;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.shade300),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.history, size: 18, color: Colors.amber.shade900),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Өмнөх түүх: Энэ үгийг өмнө нь $count удаа татгалзсан байна ($reason)'
+              '${reviewer != null ? ' • Шүүгч: $reviewer' : ''}',
+              style: TextStyle(fontSize: 12, color: Colors.brown.shade900, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Single-card one-at-a-time suggestions moderation queue
   Widget _buildSingleSuggestionReviewTab() {
     if (_suggestions.isEmpty) {
@@ -609,6 +686,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     final exists = _currentWordCheckResult?['exists'] == true;
     final definitions = (_currentWordCheckResult?['definitions'] as List?) ?? [];
+    final rejectionHistory = (_currentWordCheckResult?['rejectionHistory'] as List?) ?? [];
 
     return Center(
       child: SingleChildScrollView(
@@ -858,6 +936,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
                               'Илгээсэн: ${submittedBy ?? 'хэрэглэгч'} • ${createdAt != null ? createdAt.split('T').first : ''}',
                               style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                             ),
+                            _buildRejectionHistoryBadge(rejectionHistory),
                           ],
                         ),
                       ),
@@ -950,16 +1029,22 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
             children: [
               Icon(Icons.check_circle_outline, size: 72, color: Colors.green.shade400),
               const SizedBox(height: 16),
-              const Text(
-                'Бүх дутуу үгийг шалгаж дууслаа!',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              Text(
+                _minFrequency > 1
+                    ? 'Давтамж ≥ $_minFrequency бүхий дутуу үг олдсонгүй'
+                    : 'Бүх дутуу үгийг шалгаж дууслаа!',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
-                'Дутуу үг бүртгэгдээгүй байна.',
+                _minFrequency > 1
+                    ? 'Давтамжийн шүүлтүүрийг өөрчлөх эсвэл дахин шалгана уу.'
+                    : 'Дутуу үг бүртгэгдээгүй байна.',
                 style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              _buildFrequencyFilterSelector(),
+              const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: _loadData,
                 icon: const Icon(Icons.refresh),
@@ -979,6 +1064,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     final exists = _missingWordCheckResult?['exists'] == true;
     final definitions = (_missingWordCheckResult?['definitions'] as List?) ?? [];
+    final rejectionHistory = (_missingWordCheckResult?['rejectionHistory'] as List?) ?? [];
 
     return Center(
       child: SingleChildScrollView(
@@ -996,11 +1082,15 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Queue Header: Navigation and Index counter
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // Queue Header: Navigation, Index counter, and Frequency filter
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
                     children: [
                       Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1026,7 +1116,10 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
                         ],
                       ),
                       Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          _buildFrequencyFilterSelector(),
+                          const SizedBox(width: 8),
                           IconButton(
                             icon: const Icon(Icons.arrow_back),
                             tooltip: 'Өмнөх дутуу үг',
@@ -1145,6 +1238,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
                         ),
                       ],
                     ),
+                  _buildRejectionHistoryBadge(rejectionHistory),
                   const SizedBox(height: 12),
                   if (lastSeen != null)
                     Text(

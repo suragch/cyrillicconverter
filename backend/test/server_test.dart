@@ -152,5 +152,95 @@ void main() {
     final jsonUnknown = jsonDecode(resUnknown.body);
     expect(jsonUnknown['exists'], false);
     expect((jsonUnknown['definitions'] as List).isEmpty, true);
+    expect(jsonUnknown['rejectionHistory'], isA<List>());
+  });
+
+  test('Non-Cyrillic words in /convert are not logged to unknown_logs', () async {
+    final response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'Hello world 12345'}),
+    );
+    expect(response.statusCode, 200);
+
+    // Verify neither "Hello" nor "world" nor "12345" are in /admin/missing
+    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    expect(missingRes.statusCode, 200);
+    final missingJson = jsonDecode(missingRes.body);
+    final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
+    expect(list.contains('hello'), false);
+    expect(list.contains('world'), false);
+    expect(list.contains('12345'), false);
+  });
+
+  test('All unknown Cyrillic words in a large text are logged without limits', () async {
+    // Submit 5 distinct unknown words in one conversion text
+    final text = 'үгнэг үгхоёр үггурав үгдөрөв үгтав';
+    final response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': text}),
+    );
+    expect(response.statusCode, 200);
+
+    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    final missingJson = jsonDecode(missingRes.body);
+    final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
+
+    expect(list.contains('үгнэг'), true);
+    expect(list.contains('үгхоёр'), true);
+    expect(list.contains('үггурав'), true);
+    expect(list.contains('үгдөрөв'), true);
+    expect(list.contains('үгтав'), true);
+  });
+
+  test('/admin/missing filters by min_frequency', () async {
+    // "давтамжтайүг" converted twice
+    await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'давтамжтайүг'}),
+    );
+    await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'давтамжтайүг'}),
+    );
+
+    // "нэгдавтамжтай" converted once
+    await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'ганцдавтамжтайүг'}),
+    );
+
+    // Query with min_frequency=2
+    final res2 = await get(Uri.parse('$host/admin/missing?min_frequency=2'));
+    expect(res2.statusCode, 200);
+    final list2 = (jsonDecode(res2.body)['missing'] as List).map((m) => m['cyrillic']).toList();
+    expect(list2.contains('давтамжтайүг'), true);
+    expect(list2.contains('ганцдавтамжтайүг'), false);
+
+    // Query with min_frequency=1 includes both
+    final res1 = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    expect(res1.statusCode, 200);
+    final list1 = (jsonDecode(res1.body)['missing'] as List).map((m) => m['cyrillic']).toList();
+    expect(list1.contains('давтамжтайүг'), true);
+    expect(list1.contains('ганцдавтамжтайүг'), true);
+  });
+
+  test('/contribute rejects non-Cyrillic words', () async {
+    final response = await post(
+      Uri.parse('$host/contribute'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'cyrillic': 'latin_word',
+        'menksoft': 'test_menksoft',
+        'context': 'example',
+      }),
+    );
+    expect(response.statusCode, 400);
+    final json = jsonDecode(response.body);
+    expect(json['error'], contains('кирилл'));
   });
 }

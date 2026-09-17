@@ -8,7 +8,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/latin_ime.dart';
 import 'token.dart';
 import 'ui/converter_controller.dart';
+import 'ui/desktop/components/desktop_button.dart';
+import 'ui/desktop/components/desktop_dialog.dart';
+import 'ui/desktop/components/desktop_header.dart';
+import 'ui/desktop/components/desktop_status_bar.dart';
+import 'ui/desktop/desktop_theme.dart';
 import 'ui/dialogs/add_edit_word_dialog.dart';
+import 'ui/dictionary/dictionary_browse_view.dart';
 import 'ui/moderator/moderator_page.dart';
 
 enum ExportEncoding { unicode, menksoft }
@@ -25,14 +31,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Кирилл ➜ ᠮᠣᠩᠭᠣᠯ Хөрвүүлэгч',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        fontFamily: 'Menksoft',
-      ),
+      theme: DesktopTheme.themeData,
       home: const ConverterScreen(),
     );
   }
@@ -55,6 +54,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
   String? _authToken;
   Map<String, dynamic>? _currentUser;
   bool _isRestoringSession = false;
+
+  // Active navigation tab
+  DesktopNavTab _activeTab = DesktopNavTab.converter;
+  int _moderatorQueueCount = 0;
+
+  // Font zoom level (clamped 18..48)
+  double _fontSize = 26.0;
 
   List<Token> _tokens = [];
   List<TokenSpanInfo> _tokenSpanInfos = [];
@@ -90,7 +96,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         });
       }
 
-      // Security practice: Always validate saved token with the server
+      // Validate saved token with server
       final response = await http.get(
         Uri.parse('$_serverUrl/auth/me'),
         headers: {
@@ -116,8 +122,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
             _currentUser = user;
           });
         }
+        _fetchModeratorCount();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Security practice: Evict expired or revoked tokens immediately
         await prefs.remove(_authTokenStorageKey);
         if (mounted) {
           setState(() {
@@ -127,7 +133,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         }
       }
     } catch (_) {
-      // Server unreachable or network error: do not grant access without server verification
+      // Offline / server unreachable
     } finally {
       if (mounted) {
         setState(() {
@@ -135,6 +141,24 @@ class _ConverterScreenState extends State<ConverterScreen> {
         });
       }
     }
+  }
+
+  Future<void> _fetchModeratorCount() async {
+    if (!_isLoggedIn) return;
+    try {
+      final headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer $_authToken'};
+      final res = await http.get(
+        Uri.parse('$_serverUrl/admin/suggestions?limit=1'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final total = data['total'] as int? ?? (data['suggestions'] as List?)?.length ?? 0;
+        if (mounted) {
+          setState(() => _moderatorQueueCount = total);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -148,12 +172,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
       setState(() {
         _authToken = null;
         _currentUser = null;
+        _moderatorQueueCount = 0;
+        if (_activeTab == DesktopNavTab.moderator) {
+          _activeTab = DesktopNavTab.converter;
+        }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$email системээс гарлаа'),
-        ),
-      );
+      _showToast('$email системээс гарлаа');
     }
   }
 
@@ -165,6 +189,31 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   bool get _isLoggedIn => _authToken != null && _authToken!.isNotEmpty;
+
+  void _zoomIn() {
+    setState(() {
+      _fontSize = (_fontSize + 2).clamp(18.0, 48.0);
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      _fontSize = (_fontSize - 2).clamp(18.0, 48.0);
+    });
+  }
+
+  void _showToast(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13)),
+        backgroundColor: isError ? DesktopTheme.danger : DesktopTheme.textPrimary,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 36, right: 16, left: 16),
+      ),
+    );
+  }
 
   Future<void> _convert() async {
     final text = _inputTextController.text.trim();
@@ -311,7 +360,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   void _handleTextFieldTap() {
     final selection = _outputController.selection;
-    // If the user made an active range selection by dragging, do not open popups
     if (!selection.isCollapsed || !selection.isValid) {
       return;
     }
@@ -383,15 +431,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       _syncOutputText();
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"$cyrillic" үг шууд солигдож, модераторын дараалалд нэмэгдлээ.'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
+    _showToast('"$cyrillic" үг шууд солигдож, модераторын дараалалд нэмэгдлээ.');
 
     // 2. Asynchronously submit to remote server for moderator queue
     try {
@@ -409,6 +449,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
           'context': explanation ?? '',
         }),
       );
+      _fetchModeratorCount();
     } catch (e) {
       debugPrint('Background submission error: $e');
     }
@@ -447,7 +488,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         enabled: false,
         child: Text(
           'Кирилл: ${token.original}',
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
         ),
       ),
     );
@@ -463,7 +504,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
           child: Row(
             children: [
               if (isSelected)
-                const Icon(Icons.check, size: 16, color: Colors.blue)
+                const Icon(Icons.check, size: 16, color: DesktopTheme.primary)
               else
                 const SizedBox(width: 16),
               const SizedBox(width: 8),
@@ -478,7 +519,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   if (option.explanation != null && option.explanation!.isNotEmpty)
                     Text(
                       option.explanation!,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: const TextStyle(fontSize: 11, color: DesktopTheme.textSecondary),
                     ),
                 ],
               ),
@@ -494,9 +535,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
         value: -1,
         child: Row(
           children: [
-            Icon(Icons.flag_outlined, size: 18, color: Colors.amber),
+            Icon(Icons.flag_outlined, size: 16, color: DesktopTheme.warning),
             SizedBox(width: 8),
-            Text('Алдаа мэдээлэх / Өөр утга нэмэх'),
+            Text('Алдаа мэдээлэх / Өөр утга нэмэх', style: TextStyle(fontSize: 13)),
           ],
         ),
       ),
@@ -528,7 +569,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
           enabled: false,
           child: Text(
             'Кирилл: ${token.original}',
-            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
           ),
         ),
         const PopupMenuDivider(),
@@ -536,9 +577,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
           value: 'flag_error',
           child: Row(
             children: [
-              Icon(Icons.flag_outlined, size: 18, color: Colors.amber),
+              Icon(Icons.flag_outlined, size: 16, color: DesktopTheme.warning),
               SizedBox(width: 8),
-              Text('Алдаа мэдээлэх / Засах'),
+              Text('Алдаа мэдээлэх / Засах', style: TextStyle(fontSize: 13)),
             ],
           ),
         ),
@@ -546,9 +587,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
           value: 'copy_word',
           child: Row(
             children: [
-              Icon(Icons.copy, size: 18),
+              Icon(Icons.copy, size: 16, color: DesktopTheme.textSecondary),
               SizedBox(width: 8),
-              Text('Энэ үгийг хуулах'),
+              Text('Энэ үгийг хуулах', style: TextStyle(fontSize: 13)),
             ],
           ),
         ),
@@ -586,309 +627,628 @@ class _ConverterScreenState extends State<ConverterScreen> {
         : rawText;
 
     Clipboard.setData(ClipboardData(text: textToCopy));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_copyEncoding == ExportEncoding.unicode
-            ? 'Юникод (Unicode) хэлбэрээр хууллаа'
-            : 'Menksoft код хэлбэрээр хууллаа'),
-        duration: const Duration(seconds: 2),
-      ),
+    _showToast(
+      _copyEncoding == ExportEncoding.unicode
+          ? 'Юникод (Unicode) хэлбэрээр хууллаа'
+          : 'Menksoft код хэлбэрээр хууллаа',
     );
   }
 
   void _showLoginDialog() {
     final emailController = TextEditingController();
     final passwordController = TextEditingController();
+    bool isLoggingIn = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => SelectionArea(
-        child: AlertDialog(
-          title: const Text('Нэвтрэх'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> doLogin() async {
+            setDialogState(() => isLoggingIn = true);
+            try {
+              final response = await http.post(
+                Uri.parse('$_serverUrl/auth/login'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'email': emailController.text.trim(),
+                  'password': passwordController.text,
+                }),
+              );
+
+              if (response.statusCode == 200) {
+                final data = jsonDecode(response.body) as Map<String, dynamic>;
+                final token = data['token'] as String;
+                final user = data['user'] as Map<String, dynamic>?;
+
+                try {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString(_authTokenStorageKey, token);
+                } catch (_) {}
+
+                if (dialogCtx.mounted) {
+                  Navigator.pop(dialogCtx);
+                }
+                if (mounted) {
+                  setState(() {
+                    _authToken = token;
+                    _currentUser = user;
+                  });
+                  _showToast('Амжилттай нэвтэрлээ');
+                  _fetchModeratorCount();
+                }
+              } else {
+                String message = 'Нэвтрэх амжилтгүй боллоо';
+                try {
+                  final err = jsonDecode(response.body);
+                  if (err['error'] != null) message = err['error'].toString();
+                } catch (_) {}
+                _showToast(message, isError: true);
+              }
+            } catch (e) {
+              _showToast('Нэвтрэх амжилтгүй: $e', isError: true);
+            } finally {
+              if (dialogCtx.mounted) {
+                setDialogState(() => isLoggingIn = false);
+              }
+            }
+          }
+
+          return DesktopDialogFrame(
+            title: 'Системд нэвтрэх',
+            maxWidth: 400,
+            leadingIcon: const Icon(Icons.lock_outline, size: 18, color: DesktopTheme.primary),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Шүүгчийн эрхээр нэвтэрч үгсийн сангийн саналуудыг хянах, дутуу үг нэмэх боломжтой.',
+                  style: DesktopTheme.bodySecondary,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: emailController,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: 'Имэйл / Нэвтрэх нэр',
+                    labelStyle: TextStyle(fontSize: 12),
+                    border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: 'Нууц үг',
+                    labelStyle: TextStyle(fontSize: 12),
+                    border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onSubmitted: (_) {
+                    if (!isLoggingIn) doLogin();
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              DesktopButton(
+                onPressed: () => Navigator.pop(ctx),
+                label: 'Цуцлах',
+                variant: DesktopButtonVariant.secondary,
+                isDense: true,
+              ),
+              const SizedBox(width: 8),
+              DesktopButton(
+                onPressed: isLoggingIn ? null : doLogin,
+                label: 'Нэвтрэх',
+                variant: DesktopButtonVariant.primary,
+                isLoading: isLoggingIn,
+                isDense: true,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showShortcutsHelp() {
+    showDialog(
+      context: context,
+      builder: (ctx) => DesktopDialogFrame(
+        title: 'Товчлуурын хослолууд (Keyboard Shortcuts)',
+        maxWidth: 540,
+        leadingIcon: const Icon(Icons.keyboard_outlined, size: 18, color: DesktopTheme.primary),
         content: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: emailController,
-              decoration: const InputDecoration(
-                labelText: 'Имэйл / Нэвтрэх нэр',
-                border: OutlineInputBorder(),
-              ),
+            const Text(
+              'Хөрвүүлэгч (Converter Workspace)',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Нууц үг',
-                border: OutlineInputBorder(),
-              ),
+            const SizedBox(height: 8),
+            _buildShortcutRow('⌘ / Ctrl + Enter', 'Эх бичвэрийг монгол бичиг рүү хөрвүүлэх'),
+            _buildShortcutRow('⌘ / Ctrl + C', 'Сонгосон / бүхэл монгол бичвэрийг хуулах'),
+            _buildShortcutRow('A+ / A-', 'Босоо үсгийн хэмжээг томосгох / жижигсгэх'),
+            const SizedBox(height: 16),
+            const Text(
+              'Шүүгч / Модератор (Moderator Workspace)',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
             ),
+            const SizedBox(height: 8),
+            _buildShortcutRow('1', 'Санал эсвэл дутуу үгийг зөвшөөрөх / батлах'),
+            _buildShortcutRow('2', 'Кирилл алдаатай гэж татгалзах'),
+            _buildShortcutRow('3', 'Кирилл үг биш гэж татгалзах'),
+            _buildShortcutRow('E', 'Сонгосон үгийг засах цонх нээх'),
+            _buildShortcutRow('Space эсвэл →', 'Дараах үг рүү алгасах'),
+            _buildShortcutRow('←', 'Өмнөх үг рүү буцах'),
           ],
         ),
         actions: [
-          TextButton(
+          DesktopButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Цуцлах'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final response = await http.post(
-                  Uri.parse('$_serverUrl/auth/login'),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'email': emailController.text.trim(),
-                    'password': passwordController.text,
-                  }),
-                );
-
-                if (response.statusCode == 200) {
-                  final data = jsonDecode(response.body) as Map<String, dynamic>;
-                  final token = data['token'] as String;
-                  final user = data['user'] as Map<String, dynamic>?;
-
-                  try {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString(_authTokenStorageKey, token);
-                  } catch (_) {}
-
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                  }
-                  if (mounted) {
-                    setState(() {
-                      _authToken = token;
-                      _currentUser = user;
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Амжилттай нэвтэрлээ'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } else {
-                  String message = 'Нэвтрэх амжилтгүй боллоо';
-                  try {
-                    final err = jsonDecode(response.body);
-                    if (err['error'] != null) message = err['error'].toString();
-                  } catch (_) {}
-                  throw Exception(message);
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Нэвтрэх амжилтгүй: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Нэвтрэх'),
+            label: 'Хаах',
+            variant: DesktopButtonVariant.secondary,
+            isDense: true,
           ),
         ],
-        ),
+      ),
+    );
+  }
+
+  Widget _buildShortcutRow(String keys, String desc) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 140,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: DesktopTheme.secondarySurface,
+              borderRadius: DesktopTheme.roundedSmall,
+              border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+            ),
+            child: Text(
+              keys,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(desc, style: const TextStyle(fontSize: 13, color: DesktopTheme.textSecondary)),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return SelectionArea(
-      child: Scaffold(
-        appBar: AppBar(
-        title: const Text('Кирилл ➜ ᠮᠣᠩᠭᠣᠯ'),
-        actions: [
-          // Encoding selector
-          Row(
+    // Shortcuts handler (Cmd+Enter to convert)
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): _convert,
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): _convert,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: Column(
             children: [
-              const Text('Хуулах:', style: TextStyle(fontSize: 13)),
-              const SizedBox(width: 4),
-              DropdownButton<ExportEncoding>(
-                value: _copyEncoding,
-                underline: const SizedBox(),
-                items: const [
-                  DropdownMenuItem(
-                    value: ExportEncoding.unicode,
-                    child: Text('Unicode', style: TextStyle(fontSize: 13)),
-                  ),
-                  DropdownMenuItem(
-                    value: ExportEncoding.menksoft,
-                    child: Text('Menksoft', style: TextStyle(fontSize: 13)),
-                  ),
-                ],
-                onChanged: (val) {
-                  if (val != null) setState(() => _copyEncoding = val);
+              // Top Desktop Application Header
+              DesktopHeader(
+                activeTab: _activeTab,
+                onTabChanged: (tab) {
+                  if (tab == DesktopNavTab.moderator && !_isLoggedIn) {
+                    _showLoginDialog();
+                    return;
+                  }
+                  setState(() => _activeTab = tab);
                 },
+                moderatorBadgeCount: _moderatorQueueCount,
+                fontSize: _fontSize,
+                onZoomIn: _zoomIn,
+                onZoomOut: _zoomOut,
+                copyEncoding: _copyEncoding == ExportEncoding.unicode
+                    ? HeaderExportEncoding.unicode
+                    : HeaderExportEncoding.menksoft,
+                onEncodingChanged: (enc) {
+                  setState(() {
+                    _copyEncoding = enc == HeaderExportEncoding.unicode
+                        ? ExportEncoding.unicode
+                        : ExportEncoding.menksoft;
+                  });
+                },
+                isRestoringSession: _isRestoringSession,
+                isLoggedIn: _isLoggedIn,
+                currentUser: _currentUser,
+                onLoginPressed: _showLoginDialog,
+                onLogoutPressed: _logout,
+                onHelpPressed: _showShortcutsHelp,
+              ),
+
+              // Main Workspace View
+              Expanded(
+                child: _buildMainView(),
+              ),
+
+              // Bottom Desktop Status Bar (28px)
+              DesktopStatusBar(
+                isLoading: _isLoading,
+                wordCount: _tokens.where((t) => t.type == 'word' || t.type == 'unknown').length,
+                charCount: _inputTextController.text.length,
+                homonymCount: _tokens.where((t) => t.type == 'word' && t.options.length > 1).length,
+                unknownCount: _tokens.where((t) => t.type == 'unknown').length,
+                fontSize: _fontSize,
+                onZoomIn: _zoomIn,
+                onZoomOut: _zoomOut,
+                encodingLabel: _copyEncoding == ExportEncoding.unicode ? 'Юникод (UTF-8)' : 'Menksoft Код',
+                serverStatus: 'Сервер: 8080 (Хэвийн)',
               ),
             ],
           ),
-          const SizedBox(width: 8),
-          if (_isRestoringSession) ...[
-            const Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ] else if (_isLoggedIn) ...[
-            if (_currentUser?['email'] != null)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                  child: Text(
-                    _currentUser!['email'] as String,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                  ),
-                ),
-              ),
-            TextButton.icon(
-              icon: const Icon(Icons.admin_panel_settings),
-              label: const Text('Модератор'),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (ctx) => ModeratorPage(
-                      serverUrl: _serverUrl,
-                      authToken: _authToken,
-                      moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
-                    ),
-                  ),
-                );
-              },
-            ),
-            TextButton(
-              onPressed: _logout,
-              child: const Text('Гарах'),
-            ),
-          ] else
-            TextButton.icon(
-              icon: const Icon(Icons.login),
-              label: const Text('Нэвтрэх'),
-              onPressed: _showLoginDialog,
-            ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // Cyrillic Input Box
-            Stack(
-              children: [
-                TextField(
-                  controller: _inputTextController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Кирилл текст оруулна уу',
-                    hintText: 'Жишээ: 2026 онд Монгол улсын хүү, төр, гол хоёр утгатай.',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                  style: const TextStyle(fontFamily: null, fontSize: 16),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.paste, size: 20),
-                        tooltip: 'Санах ойгоос буулгах',
-                        onPressed: () async {
-                          final data = await Clipboard.getData('text/plain');
-                          if (data?.text != null) {
-                            _inputTextController.text = data!.text!;
-                          }
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        tooltip: 'Цэвэрлэх',
-                        onPressed: () {
-                          _inputTextController.clear();
-                          _outputController.clear();
-                          setState(() {
-                            _tokens = [];
-                            _tokenSpanInfos = [];
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Actions Row
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _convert,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.translate),
-                  label: const Text('Хөрвүүлэх'),
-                ),
-                const SizedBox(width: 16),
-                if (_tokens.isNotEmpty) ...[
-                  OutlinedButton.icon(
-                    onPressed: () => _copyToClipboard(),
-                    icon: const Icon(Icons.copy, size: 18),
-                    label: const Text('Хуулж авах'),
-                  ),
-                  const Spacer(),
-                  Text(
-                    'Цэнхэр: Олон утгатай  |  Улаан: Үл мэдэгдэх  |  Үг дээр дарж сонгох / засах',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                  ),
-                ],
-              ],
-            ),
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-              ),
-            const SizedBox(height: 16),
-            // Unified Output Area (Selectable + Clickable + Hover Cursor)
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50.withValues(alpha: 0.3),
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: _tokens.isEmpty
-                    ? Center(
-                        child: Text(
-                          _isLoading
-                              ? 'Хөрвүүлж байна...'
-                              : 'Хөрвүүлсэн текст энд босоо монгол бичгээр харагдана.',
-                          style: TextStyle(color: Colors.grey.shade600, fontFamily: null),
-                        ),
-                      )
-                    : _buildUnifiedOutput(),
-              ),
-            ),
-          ],
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildMainView() {
+    switch (_activeTab) {
+      case DesktopNavTab.converter:
+        return _buildConverterWorkspace();
+
+      case DesktopNavTab.moderator:
+        return ModeratorPage(
+          serverUrl: _serverUrl,
+          authToken: _authToken,
+          moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
+          onCountChanged: (count) {
+            if (mounted) setState(() => _moderatorQueueCount = count);
+          },
+        );
+
+      case DesktopNavTab.dictionary:
+        return DictionaryBrowseView(
+          serverUrl: _serverUrl,
+          authToken: _authToken,
+          moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
+        );
+    }
+  }
+
+  /// Side-by-side split workspace for wide desktop screens, with responsive vertical fallback
+  Widget _buildConverterWorkspace() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 800;
+
+        return Container(
+          color: DesktopTheme.canvas,
+          padding: const EdgeInsets.all(16),
+          child: isWide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Left Pane: Cyrillic Source Editor
+                    Expanded(
+                      flex: 1,
+                      child: _buildCyrillicSourcePane(),
+                    ),
+                    const SizedBox(width: 16),
+                    // Right Pane: Traditional Mongolian Output
+                    Expanded(
+                      flex: 1,
+                      child: _buildMongolianOutputPane(),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: _buildCyrillicSourcePane(),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      flex: 6,
+                      child: _buildMongolianOutputPane(),
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  /// Left Pane: Cyrillic Input Source Panel
+  Widget _buildCyrillicSourcePane() {
+    return Container(
+      decoration: BoxDecoration(
+        color: DesktopTheme.panelBackground,
+        borderRadius: DesktopTheme.roundedMedium,
+        border: Border.all(color: DesktopTheme.border, width: 1),
+        boxShadow: DesktopTheme.subtleShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Panel Header Bar
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: const BoxDecoration(
+              color: DesktopTheme.panelHeaderBackground,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(DesktopTheme.radiusMedium),
+                topRight: Radius.circular(DesktopTheme.radiusMedium),
+              ),
+              border: Border(
+                bottom: BorderSide(color: DesktopTheme.border, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.edit_note, size: 16, color: DesktopTheme.textSecondary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Эх бичвэр (Кирилл)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: DesktopTheme.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DesktopIconButton(
+                  icon: Icons.paste_outlined,
+                  tooltip: 'Санах ойгоос буулгах (Paste)',
+                  size: 15,
+                  onPressed: () async {
+                    final data = await Clipboard.getData('text/plain');
+                    if (data?.text != null) {
+                      _inputTextController.text = data!.text!;
+                      setState(() {});
+                    }
+                  },
+                ),
+                DesktopIconButton(
+                  icon: Icons.clear,
+                  tooltip: 'Цэвэрлэх (Clear)',
+                  size: 15,
+                  onPressed: () {
+                    _inputTextController.clear();
+                    _outputController.clear();
+                    setState(() {
+                      _tokens = [];
+                      _tokenSpanInfos = [];
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // Multi-line Text Editor
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: TextField(
+                controller: _inputTextController,
+                maxLines: null,
+                expands: true,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  fontFamily: null,
+                  color: DesktopTheme.textPrimary,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'Кирилл бичвэрээ энд оруулна уу...\nЖишээ: 2026 онд Монгол улсын хүү, төр, гол хоёр утгатай үгс гарна.',
+                  hintStyle: TextStyle(fontSize: 13, color: DesktopTheme.textMuted),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ),
+
+          if (_errorMessage != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              color: DesktopTheme.dangerSurface,
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(fontSize: 12, color: DesktopTheme.danger),
+              ),
+            ),
+
+          // Panel Footer Action Bar
+          Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: const BoxDecoration(
+              color: DesktopTheme.panelHeaderBackground,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(DesktopTheme.radiusMedium),
+                bottomRight: Radius.circular(DesktopTheme.radiusMedium),
+              ),
+              border: Border(
+                top: BorderSide(color: DesktopTheme.border, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                DesktopButton(
+                  onPressed: _isLoading ? null : _convert,
+                  label: 'Хөрвүүлэх',
+                  shortcutHint: '⌘↵',
+                  icon: const Icon(Icons.translate, size: 14),
+                  variant: DesktopButtonVariant.primary,
+                  isLoading: _isLoading,
+                ),
+                const Spacer(),
+                Text(
+                  'Тэмдэгт: ${_inputTextController.text.length}',
+                  style: DesktopTheme.caption,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Right Pane: Traditional Mongolian Output Panel
+  Widget _buildMongolianOutputPane() {
+    return Container(
+      decoration: BoxDecoration(
+        color: DesktopTheme.panelBackground,
+        borderRadius: DesktopTheme.roundedMedium,
+        border: Border.all(color: DesktopTheme.border, width: 1),
+        boxShadow: DesktopTheme.subtleShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Panel Header Bar
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: const BoxDecoration(
+              color: DesktopTheme.panelHeaderBackground,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(DesktopTheme.radiusMedium),
+                topRight: Radius.circular(DesktopTheme.radiusMedium),
+              ),
+              border: Border(
+                bottom: BorderSide(color: DesktopTheme.border, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.article_outlined, size: 16, color: DesktopTheme.textSecondary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Монгол бичиг (Босоо)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: DesktopTheme.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DesktopButton(
+                  onPressed: _tokens.isNotEmpty ? () => _copyToClipboard() : null,
+                  label: 'Хуулах',
+                  shortcutHint: '⌘C',
+                  icon: const Icon(Icons.copy, size: 13),
+                  variant: DesktopButtonVariant.secondary,
+                  isDense: true,
+                ),
+              ],
+            ),
+          ),
+
+          // Traditional Mongolian Canvas
+          Expanded(
+            child: _tokens.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_isLoading) ...[
+                          const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Хөрвүүлж байна...',
+                            style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                          ),
+                        ] else ...[
+                          Icon(Icons.translate, size: 40, color: DesktopTheme.textMuted.withValues(alpha: 0.5)),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Хөрвүүлсэн текст энд босоо монгол бичгээр гарна.',
+                            style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Зүүн талын талбарт кирилл бичвэрээ оруулаад "Хөрвүүлэх" (⌘+Enter) дарна уу.',
+                            style: DesktopTheme.caption,
+                          ),
+                        ],
+                      ],
+                    ),
+                  )
+                : Container(
+                    padding: const EdgeInsets.all(16),
+                    child: _buildUnifiedOutput(),
+                  ),
+          ),
+
+          // Panel Footer Status & Legend
+          Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: const BoxDecoration(
+              color: DesktopTheme.panelHeaderBackground,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(DesktopTheme.radiusMedium),
+                bottomRight: Radius.circular(DesktopTheme.radiusMedium),
+              ),
+              border: Border(
+                top: BorderSide(color: DesktopTheme.border, width: 1),
+              ),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildLegendDot(color: DesktopTheme.primary, label: 'Олон утгатай'),
+                  const SizedBox(width: 14),
+                  _buildLegendDot(color: DesktopTheme.danger, label: 'Тольд үгүй'),
+                  const SizedBox(width: 14),
+                  const Text(
+                    '• Үг дээр товшиж утга сонгох / засах',
+                    style: DesktopTheme.caption,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendDot({required Color color, required String label}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(fontSize: 11, color: DesktopTheme.textSecondary)),
+      ],
+    );
   }
 
   /// Single unified vertical output:
@@ -931,10 +1291,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   maxLines: null,
                   mouseCursor: _currentCursor,
                   onTap: _handleTextFieldTap,
-                  style: const TextStyle(
-                    fontSize: 26,
+                  style: TextStyle(
+                    fontSize: _fontSize,
                     fontFamily: 'Menksoft',
-                    color: Colors.black87,
+                    color: DesktopTheme.textPrimary,
                   ),
                   decoration: const InputDecoration(
                     border: InputBorder.none,

@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
+
 import '../../services/latin_ime.dart';
+import '../desktop/components/desktop_button.dart';
+import '../desktop/components/desktop_dialog.dart';
+import '../desktop/desktop_theme.dart';
 import '../dialogs/add_edit_word_dialog.dart';
 import 'edit_suggestion_dialog.dart';
 
@@ -11,20 +15,22 @@ class ModeratorPage extends StatefulWidget {
   final String serverUrl;
   final String? authToken;
   final String? moderatorId;
+  final ValueChanged<int>? onCountChanged;
 
   const ModeratorPage({
     super.key,
     required this.serverUrl,
     this.authToken,
     this.moderatorId,
+    this.onCountChanged,
   });
 
   @override
   State<ModeratorPage> createState() => _ModeratorPageState();
 }
 
-class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _ModeratorPageState extends State<ModeratorPage> {
+  int _activeQueueTab = 0; // 0: Suggestions, 1: Missing words
   List<dynamic> _missingWords = [];
   List<dynamic> _suggestions = [];
 
@@ -42,11 +48,18 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
   bool _isLoading = false;
   String? _error;
 
+  final FocusNode _keyboardFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _keyboardFocusNode.dispose();
+    super.dispose();
   }
 
   Map<String, String> get _headers {
@@ -76,11 +89,12 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
       final missingRes = await http.get(
         Uri.parse('${widget.serverUrl}/admin/missing?limit=100&min_frequency=$_minFrequency'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 8));
+
       final suggRes = await http.get(
         Uri.parse('${widget.serverUrl}/admin/suggestions?limit=100'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 8));
 
       if (missingRes.statusCode == 200 && suggRes.statusCode == 200) {
         final missingData = jsonDecode(missingRes.body);
@@ -100,6 +114,8 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
             _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
           }
         });
+
+        widget.onCountChanged?.call(_suggestions.length);
 
         _checkWordForCurrent();
         _checkWordForMissing();
@@ -149,7 +165,8 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
       final res = await http.get(
         Uri.parse('${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 5));
+
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         setState(() {
@@ -197,29 +214,44 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     if (alreadyIdentical) {
       final proceed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Аль хэдийн бүртгэгдсэн байна'),
+        builder: (ctx) => DesktopDialogFrame(
+          title: 'Аль хэдийн бүртгэгдсэн байна',
+          maxWidth: 420,
+          leadingIcon: const Icon(Icons.info_outline, size: 18, color: DesktopTheme.warning),
           content: Text(
             '"$cyrillic" үгэнд энэхүү босоо бичлэг толь бичигт аль хэдийн байна.\n'
             'Та давхардуулж нэмэхдээ итгэлтэй байна уу?',
+            style: DesktopTheme.body,
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Цуцлах')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Батлах')),
+            DesktopButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              label: 'Цуцлах',
+              variant: DesktopButtonVariant.secondary,
+              isDense: true,
+            ),
+            const SizedBox(width: 8),
+            DesktopButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              label: 'Батлах',
+              variant: DesktopButtonVariant.primary,
+              isDense: true,
+            ),
           ],
         ),
       );
       if (proceed != true) return;
     }
 
-    // Really it is only the homonyms that need a note.
     if (!mounted) return;
     if (exists && (note == null || note.isEmpty)) {
       final inputController = TextEditingController();
       final addedNote = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Олон утгатай үг (Homonym)'),
+        builder: (ctx) => DesktopDialogFrame(
+          title: 'Олон утгатай үг (Homonym)',
+          maxWidth: 440,
+          leadingIcon: const Icon(Icons.warning_amber_rounded, size: 18, color: DesktopTheme.warning),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -227,24 +259,35 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
               Text(
                 '"$cyrillic" кирилл үг толь бичигт өмнө нь өөр бичлэгтэй бүртгэгдсэн байна.\n'
                 'Энэ хоёрыг хэрэглэгч ялгахын тулд ялгах тэмдэглэл/тайлбар оруулна уу:',
-                style: const TextStyle(fontSize: 14),
+                style: DesktopTheme.body,
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: inputController,
                 autofocus: true,
+                style: const TextStyle(fontSize: 13),
                 decoration: const InputDecoration(
                   labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
-                  border: OutlineInputBorder(),
+                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
+                onSubmitted: (val) => Navigator.pop(ctx, val.trim()),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Цуцлах')),
-            ElevatedButton(
+            DesktopButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              label: 'Цуцлах',
+              variant: DesktopButtonVariant.secondary,
+              isDense: true,
+            ),
+            const SizedBox(width: 8),
+            DesktopButton(
               onPressed: () => Navigator.pop(ctx, inputController.text.trim()),
-              child: const Text('Батлах'),
+              label: 'Батлах',
+              variant: DesktopButtonVariant.primary,
+              isDense: true,
             ),
           ],
         ),
@@ -283,19 +326,16 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
       if (!mounted) return;
       if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Амжилттай баталлаа'), backgroundColor: Colors.green),
-        );
         _advanceQueue();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
       );
     }
   }
@@ -318,19 +358,16 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
       if (!mounted) return;
       if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Татгалзлаа: $reason'), backgroundColor: Colors.orange),
-        );
         _advanceQueue();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
       );
     }
   }
@@ -342,6 +379,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
         _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
       }
     });
+    widget.onCountChanged?.call(_suggestions.length);
     _checkWordForCurrent();
   }
 
@@ -371,16 +409,12 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
               explanation: explanation,
             );
           } else {
-            // Update local suggestion in queue
             setState(() {
               current['cyrillic'] = cyrillic;
               current['menksoft_code'] = menksoft;
               current['context'] = explanation;
             });
             _checkWordForCurrent();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Санал шинэчлэгдлээ'), backgroundColor: Colors.blue),
-            );
           }
         },
       ),
@@ -417,7 +451,8 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
       final res = await http.get(
         Uri.parse('${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 5));
+
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         setState(() {
@@ -425,7 +460,7 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
         });
       }
     } catch (_) {
-      // Ignore network errors or 404
+      // Ignore
     } finally {
       if (mounted) {
         setState(() => _isCheckingMissingWord = false);
@@ -463,12 +498,6 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
       if (!mounted) return;
       if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Татгалзсан жагсаалтад бүртгэгдлээ: $reason'),
-            backgroundColor: Colors.orange,
-          ),
-        );
         setState(() {
           _missingWords.removeAt(_missingIndex);
           if (_missingIndex >= _missingWords.length) {
@@ -478,13 +507,13 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
         _checkWordForMissing();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
       );
     }
   }
@@ -507,12 +536,9 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     );
     if (!mounted) return;
     if (res.statusCode == 200) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Үг толь бичигт нэмэгдлээ'), backgroundColor: Colors.green),
-      );
-      // Remove from missing queue if it was there
       setState(() {
-        _missingWords.removeWhere((item) => (item['cyrillic'] as String?)?.trim().toLowerCase() == cyrillic.trim().toLowerCase());
+        _missingWords.removeWhere((item) =>
+            (item['cyrillic'] as String?)?.trim().toLowerCase() == cyrillic.trim().toLowerCase());
         if (_missingIndex >= _missingWords.length) {
           _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
         }
@@ -521,57 +547,251 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     }
   }
 
+  void _openDefineMissingDialog(String cyrillic) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Үг тодорхойлох: $cyrillic',
+        initialCyrillic: cyrillic,
+        submitButtonText: 'Хадгалах',
+        onSubmit: _addWord,
+      ),
+    );
+  }
+
+  /// Single-key keyboard navigation handler
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+
+    if (_activeQueueTab == 0) {
+      // --- Suggestions Tab Shortcuts ---
+      if (_suggestions.isEmpty) return KeyEventResult.ignored;
+
+      if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1) {
+        _handleApproveCurrent();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) {
+        _handleRejectCurrent('Кирилл бичгийн алдаатай');
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) {
+        _handleRejectCurrent('Кирилл үг биш');
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.keyE) {
+        _openEditDialog();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.arrowRight) {
+        _skipCurrent();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowLeft) {
+        if (_currentIndex > 0) _goToIndex(_currentIndex - 1);
+        return KeyEventResult.handled;
+      }
+    } else {
+      // --- Missing Words Tab Shortcuts ---
+      if (_missingWords.isEmpty) return KeyEventResult.ignored;
+      final current = _missingWords[_missingIndex];
+      final cyrillic = current['cyrillic'] as String;
+
+      if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1 || key == LogicalKeyboardKey.keyE) {
+        _openDefineMissingDialog(cyrillic);
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) {
+        _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай');
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) {
+        _handleRejectMissing(cyrillic, 'Кирилл үг биш');
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.arrowRight) {
+        _skipMissing();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowLeft) {
+        if (_missingIndex > 0) _goToMissingIndex(_missingIndex - 1);
+        return KeyEventResult.handled;
+      }
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SelectionArea(
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Модераторын хяналтын самбар'),
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: [
-              Tab(
-                icon: const Icon(Icons.rate_review),
-                text: 'Хянагдах саналууд (${_suggestions.length})',
-              ),
-              Tab(
-                icon: const Icon(Icons.warning_amber),
-                text: 'Дутуу үгс (${_missingWords.length})',
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Шинэчлэх',
-              onPressed: _loadData,
+    return Focus(
+      focusNode: _keyboardFocusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Container(
+        color: DesktopTheme.canvas,
+        child: Column(
+          children: [
+            // Desktop Moderator Sub-Header Strip
+            _buildSubHeader(),
+
+            // Content Area
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  : _error != null
+                      ? Center(child: Text(_error!, style: const TextStyle(color: DesktopTheme.danger)))
+                      : _activeQueueTab == 0
+                          ? _buildSingleSuggestionReviewTab()
+                          : _buildSingleMissingWordReviewTab(),
             ),
           ],
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildSingleSuggestionReviewTab(),
-                      _buildSingleMissingWordReviewTab(),
-                    ],
-                  ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (ctx) => AddEditWordDialog(
-                title: 'Шинэ үг толь бичигт нэмэх',
-                submitButtonText: 'Нэмэх',
-                onSubmit: _addWord,
+      ),
+    );
+  }
+
+  /// Sub-Header: Queue switcher tabs, hotkey cheatsheet, and actions
+  Widget _buildSubHeader() {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: DesktopTheme.panelBackground,
+        border: Border(
+          bottom: BorderSide(color: DesktopTheme.border, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Queue Switcher Tabs
+          _buildQueueTabBtn(
+            index: 0,
+            label: 'Хянагдах саналууд',
+            count: _suggestions.length,
+            icon: Icons.rate_review_outlined,
+          ),
+          const SizedBox(width: 8),
+          _buildQueueTabBtn(
+            index: 1,
+            label: 'Дутуу үгс',
+            count: _missingWords.length,
+            icon: Icons.warning_amber_outlined,
+          ),
+
+          if (_activeQueueTab == 1) ...[
+            const SizedBox(width: 16),
+            _buildFrequencyFilterSelector(),
+          ],
+
+          const Spacer(),
+
+          // Hotkey cheatsheet
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: DesktopTheme.secondarySurface,
+              borderRadius: DesktopTheme.roundedSmall,
+              border: Border.all(color: DesktopTheme.border, width: 1),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Товчлуур: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: DesktopTheme.textSecondary)),
+                Text('[1] Батлах  [2] Алдаатай  [3] Үг биш  [E] Засах  [Space] Алгасах',
+                    style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: DesktopTheme.textSecondary)),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // Add Word Manual Button
+          DesktopButton(
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AddEditWordDialog(
+                  title: 'Шинэ үг толь бичигт нэмэх',
+                  submitButtonText: 'Нэмэх',
+                  onSubmit: _addWord,
+                ),
+              );
+            },
+            label: 'Үг нэмэх',
+            icon: const Icon(Icons.add, size: 14),
+            variant: DesktopButtonVariant.secondary,
+            isDense: true,
+          ),
+
+          const SizedBox(width: 8),
+
+          DesktopIconButton(
+            icon: Icons.refresh,
+            tooltip: 'Дахин ачааллах',
+            size: 16,
+            onPressed: _loadData,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQueueTabBtn({
+    required int index,
+    required String label,
+    required int count,
+    required IconData icon,
+  }) {
+    final isActive = _activeQueueTab == index;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _activeQueueTab = index;
+          });
+          _keyboardFocusNode.requestFocus();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: isActive ? DesktopTheme.secondarySurface : Colors.transparent,
+            borderRadius: DesktopTheme.roundedSmall,
+            border: Border.all(
+              color: isActive ? DesktopTheme.borderMedium : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: isActive ? DesktopTheme.primary : DesktopTheme.textSecondary,
               ),
-            );
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Үг нэмэх'),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                  color: isActive ? DesktopTheme.textPrimary : DesktopTheme.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isActive ? DesktopTheme.primary : DesktopTheme.borderMedium,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isActive ? Colors.white : DesktopTheme.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -579,17 +799,18 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
   Widget _buildFrequencyFilterSelector() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade300),
+        color: DesktopTheme.secondarySurface,
+        borderRadius: DesktopTheme.roundedSmall,
+        border: Border.all(color: DesktopTheme.border, width: 1),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<int>(
           value: _minFrequency,
           isDense: true,
-          style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w600),
+          style: const TextStyle(fontSize: 12, color: DesktopTheme.textPrimary, fontWeight: FontWeight.w500),
           items: const [
             DropdownMenuItem(
               value: 2,
@@ -621,22 +842,22 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     return Container(
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.amber.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.amber.shade300),
+        color: DesktopTheme.warningSurface,
+        borderRadius: DesktopTheme.roundedSmall,
+        border: Border.all(color: DesktopTheme.warningBorder, width: 1),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.history, size: 18, color: Colors.amber.shade900),
-          const SizedBox(width: 8),
+          const Icon(Icons.history, size: 16, color: DesktopTheme.warning),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               'Өмнөх түүх: Энэ үгийг өмнө нь $count удаа татгалзсан байна ($reason)'
               '${reviewer != null ? ' • Шүүгч: $reviewer' : ''}',
-              style: TextStyle(fontSize: 12, color: Colors.brown.shade900, fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 11, color: Colors.brown, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -644,31 +865,37 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     );
   }
 
-  /// Single-card one-at-a-time suggestions moderation queue
+  /// Suggestions moderation queue view
   Widget _buildSingleSuggestionReviewTab() {
     if (_suggestions.isEmpty) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: DesktopTheme.panelBackground,
+            borderRadius: DesktopTheme.roundedMedium,
+            border: Border.all(color: DesktopTheme.border, width: 1),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline, size: 72, color: Colors.green.shade400),
-              const SizedBox(height: 16),
+              const Icon(Icons.check_circle_outline, size: 56, color: DesktopTheme.success),
+              const SizedBox(height: 12),
               const Text(
                 'Бүх саналыг хянаж дууслаа!',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: DesktopTheme.textPrimary),
               ),
-              const SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 6),
+              const Text(
                 'Хянагдах санал одоогоор байхгүй байна.',
-                style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
               ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
+              const SizedBox(height: 16),
+              DesktopButton(
                 onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Дахин шалгах'),
+                label: 'Дахин шалгах',
+                icon: const Icon(Icons.refresh, size: 14),
+                variant: DesktopButtonVariant.secondary,
               ),
             ],
           ),
@@ -690,327 +917,299 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        padding: const EdgeInsets.all(20),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 780),
-          child: Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Colors.grey.shade300),
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Container(
+            decoration: BoxDecoration(
+              color: DesktopTheme.panelBackground,
+              borderRadius: DesktopTheme.roundedMedium,
+              border: Border.all(color: DesktopTheme.border, width: 1),
+              boxShadow: DesktopTheme.subtleShadow,
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Queue Header: Navigation, Counter, and Skip button
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.blue.shade200),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Queue Navigation Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: DesktopTheme.secondarySurface,
+                        borderRadius: DesktopTheme.roundedSmall,
+                        border: Border.all(color: DesktopTheme.border, width: 1),
+                      ),
+                      child: Text(
+                        'Санал ${_currentIndex + 1} / ${_suggestions.length}',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: DesktopTheme.textPrimary),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        DesktopIconButton(
+                          icon: Icons.arrow_back,
+                          tooltip: 'Өмнөх санал (←)',
+                          size: 16,
+                          onPressed: _currentIndex > 0 ? () => _goToIndex(_currentIndex - 1) : null,
                         ),
-                        child: Text(
-                          'Санал ${_currentIndex + 1} / ${_suggestions.length}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
-                            fontSize: 14,
+                        const SizedBox(width: 4),
+                        DesktopIconButton(
+                          icon: Icons.arrow_forward,
+                          tooltip: 'Дараах санал (Space / →)',
+                          size: 16,
+                          onPressed: _currentIndex < _suggestions.length - 1 ? () => _goToIndex(_currentIndex + 1) : null,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                const Divider(height: 24),
+
+                // Split inspection layout
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Left Column: Traditional Mongolian Large Preview
+                    Container(
+                      width: 100,
+                      height: 230,
+                      decoration: BoxDecoration(
+                        color: DesktopTheme.canvas,
+                        borderRadius: DesktopTheme.roundedSmall,
+                        border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+                      ),
+                      alignment: Alignment.topCenter,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: MongolText(
+                          menksoft,
+                          style: const TextStyle(
+                            fontSize: 42,
+                            fontFamily: 'Menksoft',
+                            color: DesktopTheme.textPrimary,
                           ),
                         ),
                       ),
-                      Row(
+                    ),
+
+                    const SizedBox(width: 20),
+
+                    // Middle Column: Cyrillic + Latin + Submitter
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back),
-                            tooltip: 'Өмнөх санал',
-                            onPressed: _currentIndex > 0 ? () => _goToIndex(_currentIndex - 1) : null,
+                          Row(
+                            children: [
+                              Text(
+                                cyrillic,
+                                style: const TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w700,
+                                  color: DesktopTheme.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              DesktopIconButton(
+                                icon: Icons.copy,
+                                size: 14,
+                                tooltip: 'Кирилл үгийг хуулах',
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: cyrillic));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Кирилл үг хуулагдлаа'), duration: Duration(seconds: 1)),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.arrow_forward),
-                            tooltip: 'Дараах санал',
-                            onPressed: _currentIndex < _suggestions.length - 1 ? () => _goToIndex(_currentIndex + 1) : null,
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Text('Латин галиг: ', style: DesktopTheme.caption),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: DesktopTheme.secondarySurface,
+                                  borderRadius: BorderRadius.circular(3),
+                                  border: Border.all(color: DesktopTheme.border, width: 1),
+                                ),
+                                child: Text(
+                                  latin.isEmpty ? '—' : latin,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w600,
+                                    color: DesktopTheme.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Text('Тэмдэглэл / Тайлбар:', style: DesktopTheme.caption),
+                          const SizedBox(height: 4),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: DesktopTheme.canvas,
+                              borderRadius: DesktopTheme.roundedSmall,
+                              border: Border.all(color: DesktopTheme.border, width: 1),
+                            ),
+                            child: Text(
+                              (contextText != null && contextText.trim().isNotEmpty)
+                                  ? contextText
+                                  : 'Тэмдэглэл байхгүй',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: (contextText != null && contextText.trim().isNotEmpty)
+                                    ? DesktopTheme.textPrimary
+                                    : DesktopTheme.textMuted,
+                                fontStyle: (contextText != null && contextText.trim().isNotEmpty)
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Илгээсэн: ${submittedBy ?? 'хэрэглэгч'} • ${createdAt != null ? createdAt.split('T').first : ''}',
+                            style: DesktopTheme.caption,
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  // Word Showcase Section
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Large Traditional Mongolian Preview Container
-                      Container(
-                        height: 240,
-                        width: 110,
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.blue.shade200),
-                        ),
-                        alignment: Alignment.topCenter,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: MongolText(
-                            menksoft,
-                            style: const TextStyle(
-                              fontSize: 42, // Traditional word in large text
-                              fontFamily: 'Menksoft',
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      // Details Column
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Cyrillic Title with Copy Button
-                            Row(
+                    ),
+
+                    const SizedBox(width: 16),
+
+                    // Right Column: Dictionary Status & Rejection History
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Толь бичгийн төлөв:', style: DesktopTheme.caption),
+                          const SizedBox(height: 6),
+                          if (_isCheckingCurrentWord)
+                            const Row(
                               children: [
-                                Text(
-                                  cyrillic,
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.copy, size: 18),
-                                  tooltip: 'Кирилл үгийг хуулах',
-                                  splashRadius: 18,
-                                  onPressed: () {
-                                    Clipboard.setData(ClipboardData(text: cyrillic));
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Кирилл үг хуулагдлаа'),
-                                        duration: Duration(seconds: 1),
-                                      ),
-                                    );
-                                  },
-                                ),
+                                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                SizedBox(width: 6),
+                                Text('Толь бичиг шалгаж байна...', style: DesktopTheme.caption),
                               ],
-                            ),
-                            const SizedBox(height: 10),
-                            // Latin Transliteration
-                            Row(
-                              children: [
-                                Text(
-                                  'Латин галиг: ',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.grey.shade300),
-                                  ),
-                                  child: Text(
-                                    latin.isEmpty ? '—' : latin,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.blueGrey,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            // Note / Explanation
-                            Text(
-                              'Тэмдэглэл / Тайлбар:',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w600,
+                            )
+                          else if (exists)
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: DesktopTheme.warningSurface,
+                                borderRadius: DesktopTheme.roundedSmall,
+                                border: Border.all(color: DesktopTheme.warningBorder, width: 1),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            if (contextText != null && contextText.trim().isNotEmpty)
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.grey.shade200),
-                                ),
-                                child: Text(
-                                  contextText,
-                                  style: const TextStyle(fontSize: 14, color: Colors.black87),
-                                ),
-                              )
-                            else
-                              Text(
-                                'Тэмдэглэл байхгүй (Зөвхөн олон утгатай үгсэд шаардлагатай)',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                            const SizedBox(height: 14),
-                            // Database existence & Homonym status indicator
-                            if (_isCheckingCurrentWord)
-                              Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Толь бичиг шалгаж байна...',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                  ),
-                                ],
-                              )
-                            else if (exists)
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.amber.shade300),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amber.shade900),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'Энэ кирилл үг толь бичигт бүртгэгдсэн байна (Олон утгатай / Homonym)',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.amber.shade900,
-                                            ),
-                                          ),
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.warning_amber_rounded, size: 16, color: DesktopTheme.warning),
+                                      SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Олон утгатай үг (Homonym)',
+                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: DesktopTheme.warning),
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Одоо байгаа бичлэгүүд: ${definitions.length} хувилбар байна. Олон утгатай үгэнд ялгах тайлбар шаардлагатай.',
-                                      style: TextStyle(fontSize: 12, color: Colors.brown.shade800),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            else
-                              Row(
-                                children: [
-                                  const Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
-                                  const SizedBox(width: 6),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    'Шинэ кирилл үг (Толь бичигт бүртгэлгүй)',
-                                    style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+                                    'Тольд одоо ${definitions.length} бичлэг бүртгэлтэй байна. Ялгах тайлбар заавал шаардлагатай.',
+                                    style: const TextStyle(fontSize: 11, color: Colors.brown),
                                   ),
                                 ],
                               ),
-                            const SizedBox(height: 10),
-                            // Submitter info
-                            Text(
-                              'Илгээсэн: ${submittedBy ?? 'хэрэглэгч'} • ${createdAt != null ? createdAt.split('T').first : ''}',
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: DesktopTheme.successSurface,
+                                borderRadius: DesktopTheme.roundedSmall,
+                                border: Border.all(color: DesktopTheme.successBorder, width: 1),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.check_circle_outline, size: 15, color: DesktopTheme.success),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Шинэ кирилл үг (Тольд бүртгэлгүй)',
+                                      style: TextStyle(fontSize: 11, color: DesktopTheme.success, fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            _buildRejectionHistoryBadge(rejectionHistory),
-                          ],
-                        ),
+                          _buildRejectionHistoryBadge(rejectionHistory),
+                        ],
                       ),
-                    ],
-                  ),
-                  const Divider(height: 32),
-                  // Options: Accept, Reject (misspelled), Reject (not a word), Edit, Skip
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      // 1. Accept
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade600,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.check_circle, size: 20),
-                        label: const Text(
-                          'Зөвшөөрөх',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        onPressed: _handleApproveCurrent,
-                      ),
-                      // 2. Reject: Cyrillic misspelled
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange.shade900,
-                          side: BorderSide(color: Colors.orange.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.spellcheck, size: 18),
-                        label: const Text('Кирилл алдаатай'),
-                        onPressed: () => _handleRejectCurrent('Кирилл бичгийн алдаатай'),
-                      ),
-                      // 3. Reject: Cyrillic not a word
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red.shade800,
-                          side: BorderSide(color: Colors.red.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.block, size: 18),
-                        label: const Text('Үг биш'),
-                        onPressed: () => _handleRejectCurrent('Кирилл үг биш'),
-                      ),
-                      // 4. Edit
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.blue.shade800,
-                          side: BorderSide(color: Colors.blue.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Засах'),
-                        onPressed: _openEditDialog,
-                      ),
-                      // 5. Skip button
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.grey.shade700,
-                          side: BorderSide(color: Colors.grey.shade400),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.skip_next, size: 18),
-                        label: const Text('Алгасах'),
-                        onPressed: _suggestions.length > 1 ? _skipCurrent : null,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+
+                const Divider(height: 28),
+
+                // Footer Actions with Hotkey Badges
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    DesktopButton(
+                      onPressed: _handleApproveCurrent,
+                      label: 'Зөвшөөрөх',
+                      shortcutHint: '1',
+                      icon: const Icon(Icons.check_circle_outline, size: 15),
+                      variant: DesktopButtonVariant.primary,
+                    ),
+                    DesktopButton(
+                      onPressed: () => _handleRejectCurrent('Кирилл бичгийн алдаатай'),
+                      label: 'Кирилл алдаатай',
+                      shortcutHint: '2',
+                      icon: const Icon(Icons.spellcheck, size: 14),
+                      variant: DesktopButtonVariant.danger,
+                    ),
+                    DesktopButton(
+                      onPressed: () => _handleRejectCurrent('Кирилл үг биш'),
+                      label: 'Үг биш',
+                      shortcutHint: '3',
+                      icon: const Icon(Icons.block, size: 14),
+                      variant: DesktopButtonVariant.danger,
+                    ),
+                    DesktopButton(
+                      onPressed: _openEditDialog,
+                      label: 'Засах',
+                      shortcutHint: 'E',
+                      icon: const Icon(Icons.edit_outlined, size: 14),
+                      variant: DesktopButtonVariant.secondary,
+                    ),
+                    DesktopButton(
+                      onPressed: _suggestions.length > 1 ? _skipCurrent : null,
+                      label: 'Алгасах',
+                      shortcutHint: 'Space',
+                      icon: const Icon(Icons.skip_next_outlined, size: 14),
+                      variant: DesktopButtonVariant.subtle,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -1018,37 +1217,39 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
     );
   }
 
-  /// Single-card one-at-a-time missing words queue
+  /// Missing words queue view
   Widget _buildSingleMissingWordReviewTab() {
     if (_missingWords.isEmpty) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: DesktopTheme.panelBackground,
+            borderRadius: DesktopTheme.roundedMedium,
+            border: Border.all(color: DesktopTheme.border, width: 1),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline, size: 72, color: Colors.green.shade400),
-              const SizedBox(height: 16),
+              const Icon(Icons.check_circle_outline, size: 56, color: DesktopTheme.success),
+              const SizedBox(height: 12),
               Text(
                 _minFrequency > 1
                     ? 'Давтамж ≥ $_minFrequency бүхий дутуу үг олдсонгүй'
                     : 'Бүх дутуу үгийг шалгаж дууслаа!',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: DesktopTheme.textPrimary),
               ),
-              const SizedBox(height: 8),
-              Text(
-                _minFrequency > 1
-                    ? 'Давтамжийн шүүлтүүрийг өөрчлөх эсвэл дахин шалгана уу.'
-                    : 'Дутуу үг бүртгэгдээгүй байна.',
-                style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+              const SizedBox(height: 6),
+              const Text(
+                'Давтамжийн шүүлтүүрийг өөрчлөх эсвэл дахин шалгана уу.',
+                style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
               ),
               const SizedBox(height: 16),
-              _buildFrequencyFilterSelector(),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
+              DesktopButton(
                 onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Дахин шалгах'),
+                label: 'Дахин шалгах',
+                icon: const Icon(Icons.refresh, size: 14),
+                variant: DesktopButtonVariant.secondary,
               ),
             ],
           ),
@@ -1068,251 +1269,216 @@ class _ModeratorPageState extends State<ModeratorPage> with SingleTickerProvider
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        padding: const EdgeInsets.all(20),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 780),
-          child: Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Colors.grey.shade300),
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Container(
+            decoration: BoxDecoration(
+              color: DesktopTheme.panelBackground,
+              borderRadius: DesktopTheme.roundedMedium,
+              border: Border.all(color: DesktopTheme.border, width: 1),
+              boxShadow: DesktopTheme.subtleShadow,
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Queue Header: Navigation, Index counter, and Frequency filter
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple.shade50,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.deepPurple.shade200),
-                            ),
-                            child: Text(
-                              'Дутуу үг ${_missingIndex + 1} / ${_missingWords.length}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.deepPurple.shade900,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Chip(
-                            label: Text('$freq удаа хайгдсан'),
-                            backgroundColor: freq > 3 ? Colors.red.shade100 : Colors.grey.shade200,
-                          ),
-                        ],
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildFrequencyFilterSelector(),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back),
-                            tooltip: 'Өмнөх дутуу үг',
-                            onPressed: _missingIndex > 0 ? () => _goToMissingIndex(_missingIndex - 1) : null,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.arrow_forward),
-                            tooltip: 'Дараах дутуу үг',
-                            onPressed: _missingIndex < _missingWords.length - 1 ? () => _goToMissingIndex(_missingIndex + 1) : null,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  // Word Display
-                  Row(
-                    children: [
-                      Text(
-                        cyrillic,
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      IconButton(
-                        icon: const Icon(Icons.copy, size: 20),
-                        tooltip: 'Кирилл үгийг хуулах',
-                        splashRadius: 20,
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: cyrillic));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Кирилл үг хуулагдлаа'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Context Sentence
-                  Text(
-                    'Жишээ өгүүлбэр / хэрэглээ:',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  if (lastContext != null && lastContext.trim().isNotEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Text(
-                        '"...$lastContext..."',
-                        style: const TextStyle(fontSize: 15, fontStyle: FontStyle.italic, color: Colors.black87),
-                      ),
-                    )
-                  else
-                    Text(
-                      'Жишээ өгүүлбэр бүртгэгдээгүй байна',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  // Dictionary existence status indicator
-                  if (_isCheckingMissingWord)
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Queue Navigation Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
                     Row(
                       children: [
-                        const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: DesktopTheme.secondarySurface,
+                            borderRadius: DesktopTheme.roundedSmall,
+                            border: Border.all(color: DesktopTheme.border, width: 1),
+                          ),
+                          child: Text(
+                            'Дутуу үг ${_missingIndex + 1} / ${_missingWords.length}',
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: DesktopTheme.textPrimary),
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Толь бичиг шалгаж байна...',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: freq > 3 ? DesktopTheme.dangerSurface : DesktopTheme.secondarySurface,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: freq > 3 ? DesktopTheme.dangerBorder : DesktopTheme.border,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            '$freq удаа хайгдсан',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: freq > 3 ? DesktopTheme.danger : DesktopTheme.textSecondary,
+                            ),
+                          ),
                         ),
                       ],
-                    )
-                  else if (exists)
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.amber.shade300),
-                      ),
-                      child: Text(
-                        'ℹ️ Энэ үг толь бичигт ${definitions.length} хувилбартайгаар бүртгэлтэй байна.',
-                        style: TextStyle(fontSize: 13, color: Colors.amber.shade900),
-                      ),
-                    )
-                  else
+                    ),
                     Row(
                       children: [
-                        const Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Толь бичигт бүртгэлгүй шинэ үг',
-                          style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+                        DesktopIconButton(
+                          icon: Icons.arrow_back,
+                          tooltip: 'Өмнөх дутуу үг (←)',
+                          size: 16,
+                          onPressed: _missingIndex > 0 ? () => _goToMissingIndex(_missingIndex - 1) : null,
+                        ),
+                        const SizedBox(width: 4),
+                        DesktopIconButton(
+                          icon: Icons.arrow_forward,
+                          tooltip: 'Дараах дутуу үг (Space / →)',
+                          size: 16,
+                          onPressed: _missingIndex < _missingWords.length - 1 ? () => _goToMissingIndex(_missingIndex + 1) : null,
                         ),
                       ],
                     ),
-                  _buildRejectionHistoryBadge(rejectionHistory),
-                  const SizedBox(height: 12),
-                  if (lastSeen != null)
+                  ],
+                ),
+
+                const Divider(height: 24),
+
+                // Cyrillic Title with Copy
+                Row(
+                  children: [
                     Text(
-                      'Сүүлд хайгдсан: ${lastSeen.split('T').first}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                      cyrillic,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        color: DesktopTheme.textPrimary,
+                      ),
                     ),
-                  const Divider(height: 32),
-                  // Options: Define/Add, Reject (misspelled), Reject (not a word), Skip
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                    const SizedBox(width: 8),
+                    DesktopIconButton(
+                      icon: Icons.copy,
+                      size: 15,
+                      tooltip: 'Кирилл үгийг хуулах',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: cyrillic));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Кирилл үг хуулагдлаа'), duration: Duration(seconds: 1)),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 14),
+
+                // Context sentence
+                const Text('Жишээ өгүүлбэр / хэрэглээ:', style: DesktopTheme.caption),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: DesktopTheme.canvas,
+                    borderRadius: DesktopTheme.roundedSmall,
+                    border: Border.all(color: DesktopTheme.border, width: 1),
+                  ),
+                  child: Text(
+                    (lastContext != null && lastContext.trim().isNotEmpty)
+                        ? '"...$lastContext..."'
+                        : 'Жишээ өгүүлбэр бүртгэгдээгүй байна',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontStyle: (lastContext != null && lastContext.trim().isNotEmpty)
+                          ? FontStyle.italic
+                          : FontStyle.normal,
+                      color: (lastContext != null && lastContext.trim().isNotEmpty)
+                          ? DesktopTheme.textPrimary
+                          : DesktopTheme.textMuted,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Dictionary Status
+                if (_isCheckingMissingWord)
+                  const Row(
                     children: [
-                      // 1. Define / Add word
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.add, size: 20),
-                        label: const Text(
-                          'Тодорхойлох / Нэмэх',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (ctx) => AddEditWordDialog(
-                              title: 'Үг тодорхойлох: $cyrillic',
-                              initialCyrillic: cyrillic,
-                              submitButtonText: 'Хадгалах',
-                              onSubmit: _addWord,
-                            ),
-                          );
-                        },
-                      ),
-                      // 2. Reject: Cyrillic misspelled
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange.shade900,
-                          side: BorderSide(color: Colors.orange.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.spellcheck, size: 18),
-                        label: const Text('Кирилл алдаатай'),
-                        onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай'),
-                      ),
-                      // 3. Reject: Cyrillic not a word
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red.shade800,
-                          side: BorderSide(color: Colors.red.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.block, size: 18),
-                        label: const Text('Үг биш'),
-                        onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
-                      ),
-                      // 4. Skip button
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.grey.shade700,
-                          side: BorderSide(color: Colors.grey.shade400),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        icon: const Icon(Icons.skip_next, size: 18),
-                        label: const Text('Алгасах'),
-                        onPressed: _missingWords.length > 1 ? _skipMissing : null,
-                      ),
+                      SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                      SizedBox(width: 6),
+                      Text('Толь бичиг шалгаж байна...', style: DesktopTheme.caption),
+                    ],
+                  )
+                else if (exists)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: DesktopTheme.warningSurface,
+                      borderRadius: DesktopTheme.roundedSmall,
+                      border: Border.all(color: DesktopTheme.warningBorder, width: 1),
+                    ),
+                    child: Text(
+                      'ℹ️ Энэ үг толь бичигт ${definitions.length} хувилбартайгаар бүртгэлтэй байна.',
+                      style: const TextStyle(fontSize: 12, color: Colors.brown, fontWeight: FontWeight.w500),
+                    ),
+                  )
+                else
+                  const Row(
+                    children: [
+                      Icon(Icons.check_circle_outline, size: 15, color: DesktopTheme.success),
+                      SizedBox(width: 6),
+                      Text('Толь бичигт бүртгэлгүй шинэ үг', style: TextStyle(fontSize: 12, color: DesktopTheme.success)),
                     ],
                   ),
+
+                _buildRejectionHistoryBadge(rejectionHistory),
+
+                if (lastSeen != null) ...[
+                  const SizedBox(height: 10),
+                  Text('Сүүлд хайгдсан: ${lastSeen.split('T').first}', style: DesktopTheme.caption),
                 ],
-              ),
+
+                const Divider(height: 28),
+
+                // Footer Actions with Hotkey Badges
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    DesktopButton(
+                      onPressed: () => _openDefineMissingDialog(cyrillic),
+                      label: 'Тодорхойлох / Нэмэх',
+                      shortcutHint: '1 / E',
+                      icon: const Icon(Icons.add, size: 15),
+                      variant: DesktopButtonVariant.primary,
+                    ),
+                    DesktopButton(
+                      onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай'),
+                      label: 'Кирилл алдаатай',
+                      shortcutHint: '2',
+                      icon: const Icon(Icons.spellcheck, size: 14),
+                      variant: DesktopButtonVariant.danger,
+                    ),
+                    DesktopButton(
+                      onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
+                      label: 'Үг биш',
+                      shortcutHint: '3',
+                      icon: const Icon(Icons.block, size: 14),
+                      variant: DesktopButtonVariant.danger,
+                    ),
+                    DesktopButton(
+                      onPressed: _missingWords.length > 1 ? _skipMissing : null,
+                      label: 'Алгасах',
+                      shortcutHint: 'Space',
+                      icon: const Icon(Icons.skip_next_outlined, size: 14),
+                      variant: DesktopButtonVariant.subtle,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),

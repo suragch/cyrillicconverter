@@ -3,19 +3,45 @@ import 'dart:io';
 
 import 'package:http/http.dart';
 import 'package:test/test.dart';
+import '../lib/database.dart';
 
 void main() {
   final port = '8089';
   final host = 'http://127.0.0.1:$port';
+  final testDbPath = 'test_server_dictionary.db';
   late Process p;
 
   setUpAll(() async {
+    // 1. Create a clean, isolated temporary test database
+    final appDb = AppDatabase.open(testDbPath);
+    appDb.initSchema();
+    appDb.addWordDefinition(
+      cyrillic: 'сайн',
+      menksoft: '\uE2AC\uE281\uE2B5',
+      isPrimary: true,
+      verifiedBy: 'test_seed',
+    );
+    appDb.addWordDefinition(
+      cyrillic: 'байна',
+      menksoft: '\uE2A5\uE281\uE2B5\uE281',
+      isPrimary: true,
+      verifiedBy: 'test_seed',
+    );
+    appDb.addWordDefinition(
+      cyrillic: 'уу',
+      menksoft: '\uE28D\uE28D',
+      isPrimary: true,
+      verifiedBy: 'test_seed',
+    );
+    appDb.close();
+
+    // 2. Start server pointing strictly to the isolated test database
     p = await Process.start(
       'dart',
       ['run', 'bin/server.dart'],
       environment: {
         'PORT': port,
-        'DB_PATH': 'dictionary.db',
+        'DB_PATH': testDbPath,
       },
     );
     // Listen for startup output
@@ -23,7 +49,23 @@ void main() {
     print('Server started: $line');
   });
 
-  tearDownAll(() => p.kill());
+  tearDownAll(() async {
+    p.kill();
+    // Wait briefly for process to exit cleanly
+    try {
+      await p.exitCode.timeout(const Duration(seconds: 2));
+    } catch (_) {}
+
+    // Clean up temporary test database files so no test artifacts remain
+    for (final suffix in ['', '-shm', '-wal']) {
+      final f = File('$testDbPath$suffix');
+      if (f.existsSync()) {
+        try {
+          f.deleteSync();
+        } catch (_) {}
+      }
+    }
+  });
 
   test('Health check', () async {
     final response = await get(Uri.parse('$host/health'));
@@ -33,7 +75,6 @@ void main() {
   });
 
   test('Convert known words with punctuation and spaces', () async {
-    // We migrated 'сайн', 'байна', 'уу' from PocketBase
     final response = await post(
       Uri.parse('$host/convert'),
       headers: {'Content-Type': 'application/json'},

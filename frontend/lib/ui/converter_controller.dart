@@ -19,10 +19,18 @@ class TokenSpanInfo {
 
 class MongolConverterController extends TextEditingController {
   final List<TokenSpanInfo> Function() tokenSpansProvider;
+  int? hoveredTokenIndex;
 
   MongolConverterController({
     required this.tokenSpansProvider,
+    this.hoveredTokenIndex,
   });
+
+  void setHoveredTokenIndex(int? index) {
+    if (hoveredTokenIndex == index) return;
+    hoveredTokenIndex = index;
+    notifyListeners();
+  }
 
   @override
   TextSpan buildTextSpan({
@@ -38,12 +46,15 @@ class MongolConverterController extends TextEditingController {
     final children = <TextSpan>[];
     for (final info in spans) {
       final token = info.token;
+      final isHovered = (info.tokenIndex == hoveredTokenIndex);
+
       if (token.type == 'unknown') {
         children.add(
           TextSpan(
             text: info.text,
             style: (style ?? const TextStyle()).copyWith(
-              color: Colors.red.shade700,
+              color: isHovered ? Colors.red.shade900 : Colors.red.shade700,
+              backgroundColor: isHovered ? Colors.red.shade100 : null,
               fontFamily: null, // default Cyrillic fallback
               decoration: TextDecoration.underline,
               decorationColor: Colors.red,
@@ -57,14 +68,27 @@ class MongolConverterController extends TextEditingController {
             text: info.text,
             style: (style ?? const TextStyle()).copyWith(
               fontFamily: 'Menksoft',
-              color: Colors.black87,
+              color: isHovered ? Colors.blue.shade900 : Colors.black87,
+              backgroundColor: isHovered ? Colors.blue.shade100 : null,
               decoration: TextDecoration.underline,
               decorationColor: Colors.blue.shade700,
               decorationStyle: TextDecorationStyle.dashed,
             ),
           ),
         );
+      } else if (token.type == 'word') {
+        children.add(
+          TextSpan(
+            text: info.text,
+            style: (style ?? const TextStyle()).copyWith(
+              fontFamily: 'Menksoft',
+              color: isHovered ? Colors.indigo.shade900 : Colors.black87,
+              backgroundColor: isHovered ? Colors.indigo.shade50 : null,
+            ),
+          ),
+        );
       } else {
+        // Delimiters and spaces
         children.add(
           TextSpan(
             text: info.text,

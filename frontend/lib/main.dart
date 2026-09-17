@@ -211,8 +211,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
     final MouseCursor newCursor;
     if (info != null && (info.token.type == 'word' || info.token.type == 'unknown')) {
       newCursor = SystemMouseCursors.click;
+      _outputController.setHoveredTokenIndex(info.tokenIndex);
     } else {
       newCursor = SystemMouseCursors.text;
+      _outputController.setHoveredTokenIndex(null);
     }
 
     if (_currentCursor != newCursor) {
@@ -778,6 +780,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         cursor: _currentCursor,
         onHover: (event) => _handleHover(event.position),
         onExit: (_) {
+          _outputController.setHoveredTokenIndex(null);
           if (_currentCursor != SystemMouseCursors.basic) {
             setState(() => _currentCursor = SystemMouseCursors.basic);
           }

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
 import 'package:sqlite3/sqlite3.dart';
 
 class AppDatabase {
@@ -88,7 +91,7 @@ class AppDatabase {
 
     final stmtWord = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
     final wordResult = stmtWord.select([normalized]);
-    stmtWord.dispose();
+    stmtWord.close();
 
     if (wordResult.isEmpty) return [];
 
@@ -97,7 +100,7 @@ class AppDatabase {
       'SELECT menksoft_code, explanation, is_primary FROM definitions WHERE word_id = ? ORDER BY is_primary DESC, id ASC',
     );
     final defResult = stmtDef.select([wordId]);
-    stmtDef.dispose();
+    stmtDef.close();
 
     return defResult.map((row) {
       return {
@@ -165,11 +168,11 @@ class AppDatabase {
     final normalized = cyrillic.trim().toLowerCase();
     final stmtWord = db.prepare('INSERT OR IGNORE INTO words (cyrillic) VALUES (?)');
     stmtWord.execute([normalized]);
-    stmtWord.dispose();
+    stmtWord.close();
 
     final stmtGetId = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
     final wordRow = stmtGetId.select([normalized]);
-    stmtGetId.dispose();
+    stmtGetId.close();
     final wordId = wordRow.first['id'] as int;
 
     // Check if identical definition already exists
@@ -177,7 +180,7 @@ class AppDatabase {
       'SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ?',
     );
     final existing = checkStmt.select([wordId, menksoft.trim()]);
-    checkStmt.dispose();
+    checkStmt.close();
 
     if (existing.isEmpty) {
       // If setting as primary, demote existing primary definitions if needed
@@ -306,7 +309,144 @@ class AppDatabase {
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
+  /// Returns total count of words in the database.
+  int getWordCount() {
+    final row = db.select('SELECT count(*) as count FROM words;');
+    return row.first['count'] as int;
+  }
+
+  /// Creates an atomic SQLite backup snapshot using VACUUM INTO.
+  void createBackupSnapshot(String destinationPath) {
+    final file = File(destinationPath);
+    if (file.existsSync()) {
+      file.deleteSync();
+    }
+    db.execute('VACUUM INTO ?', [destinationPath]);
+  }
+
+  /// Returns all approved words and definitions as a JSON-serializable list.
+  List<Map<String, dynamic>> getApprovedWordsJson() {
+    final rows = db.select('''
+      SELECT w.cyrillic, d.menksoft_code, d.explanation, d.is_primary
+      FROM words w
+      JOIN definitions d ON w.id = d.word_id
+      ORDER BY w.cyrillic ASC, d.is_primary DESC;
+    ''');
+    return rows.map((r) => {
+      'cyrillic': r['cyrillic'],
+      'menksoft': r['menksoft_code'],
+      'explanation': r['explanation'],
+      'isPrimary': (r['is_primary'] as int) == 1,
+    }).toList();
+  }
+
+  /// Returns all records across all tables as a JSON-serializable Map.
+  Map<String, dynamic> getFullDatabaseJson() {
+    final words = db.select('SELECT id, cyrillic, is_abbreviation, created_at FROM words ORDER BY id ASC;');
+    final definitions = db.select('SELECT id, word_id, menksoft_code, explanation, is_primary, verified_by, created_at FROM definitions ORDER BY id ASC;');
+    final unknownLogs = db.select('SELECT id, cyrillic, frequency, last_context, first_seen, last_seen FROM unknown_logs ORDER BY frequency DESC;');
+    final suggestions = db.select('SELECT id, cyrillic, menksoft_code, context, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;');
+    final rejectedWords = db.select('SELECT id, cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by, created_at FROM rejected_words ORDER BY id ASC;');
+
+    return {
+      'exported_at': DateTime.now().toIso8601String(),
+      'words': words.map((r) => Map<String, dynamic>.from(r)).toList(),
+      'definitions': definitions.map((r) => Map<String, dynamic>.from(r)).toList(),
+      'unknown_logs': unknownLogs.map((r) => Map<String, dynamic>.from(r)).toList(),
+      'suggestions': suggestions.map((r) => Map<String, dynamic>.from(r)).toList(),
+      'rejected_words': rejectedWords.map((r) => Map<String, dynamic>.from(r)).toList(),
+    };
+  }
+
+  /// Seeds or syncs data from the old PocketBase collection into SQLite.
+  /// Returns a map with summary counts: {'imported': N, 'skipped': M, 'total': Total}
+  Future<Map<String, int>> seedFromOldApp({
+    String baseUrl = 'https://cyrillic.suragch.dev/api/collections/words/records',
+    void Function(String message)? onProgress,
+  }) async {
+    int page = 1;
+    const perPage = 500;
+    int totalImported = 0;
+    int totalSkipped = 0;
+    int totalItems = 0;
+
+    while (true) {
+      final url = Uri.parse('$baseUrl?page=$page&perPage=$perPage');
+      onProgress?.call('Fetching page $page...');
+      final response = await http.get(url).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to fetch page $page: ${response.statusCode}');
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final List<dynamic> items = data['items'] as List<dynamic>? ?? [];
+      final int totalPages = data['totalPages'] as int? ?? 1;
+      totalItems = data['totalItems'] as int? ?? 0;
+
+      if (items.isEmpty) break;
+
+      db.execute('BEGIN TRANSACTION;');
+      try {
+        for (final item in items) {
+          final cyrillic = (item['cyrillic'] as String?)?.trim();
+          final mongol = (item['mongol'] as String?)?.trim();
+
+          if (cyrillic == null || cyrillic.isEmpty || mongol == null || mongol.isEmpty) {
+            totalSkipped++;
+            continue;
+          }
+
+          final normalized = cyrillic.toLowerCase();
+
+          // 1. Insert word
+          db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [normalized]);
+
+          // 2. Get word id
+          final row = db.select('SELECT id FROM words WHERE cyrillic = ? LIMIT 1;', [normalized]);
+          if (row.isEmpty) {
+            totalSkipped++;
+            continue;
+          }
+          final wordId = row.first['id'] as int;
+
+          // 3. Insert definition if not exists
+          final existingDef = db.select(
+            'SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ? LIMIT 1;',
+            [wordId, mongol],
+          );
+
+          if (existingDef.isEmpty) {
+            final countRow = db.select('SELECT count(*) as count FROM definitions WHERE word_id = ?;', [wordId]);
+            final existingCount = countRow.first['count'] as int;
+            final isPrimary = existingCount == 0 ? 1 : 0;
+
+            db.execute('''
+              INSERT INTO definitions (word_id, menksoft_code, is_primary, verified_by)
+              VALUES (?, ?, ?, 'migrated');
+            ''', [wordId, mongol, isPrimary]);
+            totalImported++;
+          }
+        }
+        db.execute('COMMIT;');
+      } catch (e) {
+        db.execute('ROLLBACK;');
+        rethrow;
+      }
+
+      onProgress?.call('Imported $totalImported / $totalItems items...');
+      if (page >= totalPages) break;
+      page++;
+    }
+
+    return {
+      'imported': totalImported,
+      'skipped': totalSkipped,
+      'total': totalItems,
+    };
+  }
+
   void close() {
-    db.dispose();
+    db.close();
   }
 }

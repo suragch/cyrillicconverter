@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'services/file_downloader.dart';
 import 'services/latin_ime.dart';
 import 'token.dart';
 import 'ui/converter_controller.dart';
@@ -50,7 +52,19 @@ class _ConverterScreenState extends State<ConverterScreen> {
   final GlobalKey _fieldKey = GlobalKey();
 
   static const String _authTokenStorageKey = 'cyrillic_converter_auth_token';
-  final String _serverUrl = 'http://localhost:8080';
+
+  static String get _defaultServerUrl {
+    const envUrl = String.fromEnvironment('API_BASE_URL');
+    if (envUrl.isNotEmpty) return envUrl;
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      if (origin.startsWith('http')) return origin;
+    }
+    return 'http://localhost:8080';
+  }
+
+  late final String _serverUrl;
+  String _serverStatusText = 'Сервер: Шалгаж байна...';
   String? _authToken;
   Map<String, dynamic>? _currentUser;
   bool _isRestoringSession = false;
@@ -76,10 +90,43 @@ class _ConverterScreenState extends State<ConverterScreen> {
   @override
   void initState() {
     super.initState();
+    _serverUrl = _defaultServerUrl;
     _outputController = MongolConverterController(
       tokenSpansProvider: () => _tokenSpanInfos,
     );
+    _checkServerHealth();
     _restoreSession();
+  }
+
+  Future<void> _checkServerHealth() async {
+    try {
+      final res = await http.get(Uri.parse('$_serverUrl/health')).timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        if (mounted) setState(() => _serverStatusText = 'Сервер: Хэвийн');
+      } else {
+        if (mounted) setState(() => _serverStatusText = 'Сервер: Алдаа (${res.statusCode})');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _serverStatusText = 'Сервер: Холбогдоогүй');
+    }
+  }
+
+  Future<void> _downloadPublicDictionary({bool isJson = false}) async {
+    final ext = isJson ? 'json' : 'csv';
+    final filename = 'mongol_dictionary.$ext';
+    final url = '$_serverUrl/export/$ext';
+    try {
+      final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+      if (res.statusCode == 200) {
+        final mime = isJson ? 'application/json' : 'text/csv';
+        downloadFileFromBytes(res.bodyBytes, filename, mime);
+        _showToast('$filename амжилттай татагдлаа.');
+      } else {
+        _showToast('Татахад алдаа: ${res.statusCode}', isError: true);
+      }
+    } catch (e) {
+      _showToast('Татахад холболтын алдаа: $e', isError: true);
+    }
   }
 
   Future<void> _restoreSession() async {
@@ -870,6 +917,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 onLoginPressed: _showLoginDialog,
                 onLogoutPressed: _logout,
                 onHelpPressed: _showShortcutsHelp,
+                onDownloadDictionary: () => _downloadPublicDictionary(),
               ),
 
               // Main Workspace View
@@ -888,7 +936,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 onZoomIn: _zoomIn,
                 onZoomOut: _zoomOut,
                 encodingLabel: _copyEncoding == ExportEncoding.unicode ? 'Юникод (UTF-8)' : 'Menksoft Код',
-                serverStatus: 'Сервер: 8080 (Хэвийн)',
+                serverStatus: _serverStatusText,
               ),
             ],
           ),
@@ -917,6 +965,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
           serverUrl: _serverUrl,
           authToken: _authToken,
           moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
+          onDownloadDictionary: () => _downloadPublicDictionary(),
         );
     }
   }

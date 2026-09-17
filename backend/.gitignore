@@ -2,6 +2,9 @@
 # Created by `dart pub`
 .dart_tool/
 
+# Build outputs
+build/
+
 # SQLite databases & dictionary files
 *.db
 *.db-shm

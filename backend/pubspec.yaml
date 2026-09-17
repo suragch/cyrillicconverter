@@ -14,6 +14,5 @@ dependencies:
   pocketbase: ^0.22.0
 
 dev_dependencies:
-  http: ^1.2.2
   lints: ^6.0.0
   test: ^1.25.6

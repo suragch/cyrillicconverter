@@ -28,6 +28,7 @@ class DesktopHeader extends StatelessWidget {
   final VoidCallback onLoginPressed;
   final VoidCallback onLogoutPressed;
   final VoidCallback onHelpPressed;
+  final VoidCallback? onDownloadDictionary;
 
   const DesktopHeader({
     super.key,
@@ -45,6 +46,7 @@ class DesktopHeader extends StatelessWidget {
     required this.onLoginPressed,
     required this.onLogoutPressed,
     required this.onHelpPressed,
+    this.onDownloadDictionary,
   });
 
   @override
@@ -217,6 +219,15 @@ class DesktopHeader extends StatelessWidget {
                         size: 16,
                         onPressed: onHelpPressed,
                       ),
+                      if (onDownloadDictionary != null) ...[
+                        const SizedBox(width: 4),
+                        DesktopIconButton(
+                          icon: Icons.download_outlined,
+                          tooltip: 'Толь бичиг татах (CSV)',
+                          size: 16,
+                          onPressed: onDownloadDictionary,
+                        ),
+                      ],
 
                       const SizedBox(width: 8),
                       _buildVerticalDivider(),

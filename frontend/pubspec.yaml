@@ -1,6 +1,6 @@
 name: frontend
-description: "A new Flutter project."
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Cyrillic to Traditional Mongolian Converter and Dictionary"
+publish_to: 'none'
 version: 1.0.0+1
 
 environment:
@@ -13,8 +13,6 @@ dependencies:
   http: ^1.6.0
   mongol_code: ^1.0.4
   mongol: ^9.0.0
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
   shared_preferences: ^2.5.5
 
 dev_dependencies:

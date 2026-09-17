@@ -1,21 +1,30 @@
-# Use latest stable channel SDK.
+# Stage 1: Build the CLI app bundle including sqlite3 native assets using modern Dart build hooks
 FROM dart:stable AS build
 
-# Resolve app dependencies.
 WORKDIR /app
 COPY pubspec.* ./
 RUN dart pub get
 
-# Copy app source code (except anything in .dockerignore) and AOT compile app.
 COPY . .
-RUN dart compile exe bin/server.dart -o bin/server
+RUN dart build cli -t bin/server.dart -o build/cli/
 
-# Build minimal serving image from AOT-compiled `/server`
-# and the pre-built AOT-runtime in the `/runtime/` directory of the base image.
-FROM scratch
-COPY --from=build /runtime/ /
-COPY --from=build /app/bin/server /app/bin/
+# Stage 2: Minimal, secure Debian runtime with SQLite3 C library and SSL certs
+FROM debian:bookworm-slim
 
-# Start server.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sqlite3 \
+    libsqlite3-0 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the complete compiled bundle (bin/server and lib/libsqlite3.*)
+COPY --from=build /app/build/cli/bundle/ /app/
+
+ENV DB_PATH=/data/dictionary.db
+ENV PORT=8080
+
 EXPOSE 8080
+
 CMD ["/app/bin/server"]

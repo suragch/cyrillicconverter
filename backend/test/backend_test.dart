@@ -1,8 +1,7 @@
-import 'dart:convert';
+import 'package:backend/database.dart';
+import 'package:backend/tokenizer.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
-import '../lib/database.dart';
-import '../lib/tokenizer.dart';
 
 void main() {
   group('Tokenizer Tests', () {

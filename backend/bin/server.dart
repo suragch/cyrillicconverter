@@ -6,10 +6,10 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../lib/auth_middleware.dart';
-import '../lib/cyrillic_validator.dart';
-import '../lib/database.dart';
-import '../lib/tokenizer.dart';
+import 'package:backend/auth_middleware.dart';
+import 'package:backend/cyrillic_validator.dart';
+import 'package:backend/database.dart';
+import 'package:backend/tokenizer.dart';
 
 late final AppDatabase _db;
 late final String _pbUrl;
@@ -24,15 +24,20 @@ final _router = Router()
   ..post('/contribute', _contributeHandler)
   ..post('/suggest', _contributeHandler)
   ..get('/export/csv', _exportCsvHandler)
-  // Admin / Moderator endpoints
-  ..get('/admin/words/check', _adminCheckWordHandler)
+  ..get('/export/json', _exportJsonHandler)
+  // Public Dictionary lookup
   ..get('/words/check', _adminCheckWordHandler)
-  ..get('/admin/missing', _adminMissingHandler)
-  ..post('/admin/missing/reject', _adminRejectMissingHandler)
-  ..get('/admin/suggestions', _adminSuggestionsHandler)
-  ..post('/admin/suggestions/approve', _adminApproveHandler)
-  ..post('/admin/suggestions/reject', _adminRejectHandler)
-  ..post('/admin/words', _adminAddWordHandler);
+  // Admin / Moderator endpoints (Protected)
+  ..get('/admin/words/check', requireModerator(_adminCheckWordHandler))
+  ..get('/admin/missing', requireModerator(_adminMissingHandler))
+  ..post('/admin/missing/reject', requireModerator(_adminRejectMissingHandler))
+  ..get('/admin/suggestions', requireModerator(_adminSuggestionsHandler))
+  ..post('/admin/suggestions/approve', requireModerator(_adminApproveHandler))
+  ..post('/admin/suggestions/reject', requireModerator(_adminRejectHandler))
+  ..post('/admin/words', requireModerator(_adminAddWordHandler))
+  ..get('/admin/db/download', requireModerator(_adminDbDownloadHandler))
+  ..get('/admin/db/export-json', requireModerator(_adminDbExportJsonHandler))
+  ..post('/admin/db/seed', requireModerator(_adminDbSeedHandler));
 
 Response _healthHandler(Request request) {
   return Response.ok(
@@ -297,6 +302,88 @@ Future<Response> _exportCsvHandler(Request request) async {
   );
 }
 
+Future<Response> _exportJsonHandler(Request request) async {
+  final list = _db.getApprovedWordsJson();
+  return Response.ok(
+    jsonEncode(list),
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': 'attachment; filename="mongol_dictionary.json"',
+    },
+  );
+}
+
+Future<Response> _adminDbDownloadHandler(Request request) async {
+  final tempFile = File('${Directory.systemTemp.path}/db_backup_${DateTime.now().millisecondsSinceEpoch}.db');
+  try {
+    _db.createBackupSnapshot(tempFile.path);
+    final bytes = await tempFile.readAsBytes();
+    final dateStr = DateTime.now().toIso8601String().split('T').first;
+    final filename = 'cyrillic_dictionary_full_$dateStr.db';
+    return Response.ok(
+      bytes,
+      headers: {
+        'content-type': 'application/vnd.sqlite3',
+        'content-disposition': 'attachment; filename="$filename"',
+      },
+    );
+  } catch (e) {
+    return Response.internalServerError(
+      body: jsonEncode({'error': 'Failed to create database snapshot: $e'}),
+      headers: {'content-type': 'application/json'},
+    );
+  } finally {
+    if (tempFile.existsSync()) {
+      try {
+        tempFile.deleteSync();
+      } catch (_) {}
+    }
+  }
+}
+
+Future<Response> _adminDbExportJsonHandler(Request request) async {
+  final fullData = _db.getFullDatabaseJson();
+  final dateStr = DateTime.now().toIso8601String().split('T').first;
+  final filename = 'cyrillic_dictionary_dump_$dateStr.json';
+  return Response.ok(
+    jsonEncode(fullData),
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': 'attachment; filename="$filename"',
+    },
+  );
+}
+
+Future<Response> _adminDbSeedHandler(Request request) async {
+  try {
+    String? customUrl;
+    if (request.contentLength != null && request.contentLength! > 0) {
+      try {
+        final body = await request.readAsString();
+        if (body.isNotEmpty) {
+          final json = jsonDecode(body) as Map<String, dynamic>;
+          customUrl = json['url'] as String?;
+        }
+      } catch (_) {}
+    }
+
+    final url = customUrl ?? Platform.environment['OLD_APP_URL'] ?? 'https://cyrillic.suragch.dev/api/collections/words/records';
+    final result = await _db.seedFromOldApp(
+      baseUrl: url,
+      onProgress: (msg) => print('[AdminSeed] $msg'),
+    );
+    return Response.ok(
+      jsonEncode({'success': true, 'stats': result}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.internalServerError(
+      body: jsonEncode({'error': 'Seeding failed: $e'}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+}
+
 // Admin / Moderator Handlers
 
 Future<Response> _adminMissingHandler(Request request) async {
@@ -452,19 +539,35 @@ Future<Response> _adminAddWordHandler(Request request) async {
   }
 }
 
+Middleware payloadLimitMiddleware({int maxBytes = 10 * 1024 * 1024}) {
+  return (Handler handler) {
+    return (Request request) async {
+      if (request.contentLength != null && request.contentLength! > maxBytes) {
+        return Response(
+          413,
+          body: jsonEncode({'error': 'Payload exceeds maximum limit of ${maxBytes ~/ (1024 * 1024)}MB'}),
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return handler(request);
+    };
+  };
+}
+
 Middleware corsMiddleware() {
+  final origin = Platform.environment['CORS_ORIGIN'] ?? '*';
   return (Handler handler) {
     return (Request request) async {
       if (request.method == 'OPTIONS') {
         return Response.ok('', headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
         });
       }
       final response = await handler(request);
       return response.change(headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
       });
@@ -478,12 +581,26 @@ void main(List<String> args) async {
   _db.initSchema();
   print('SQLite database opened at $dbPath.');
 
+  // Auto-seed if database has 0 words and AUTO_SEED is set to true
+  final autoSeed = Platform.environment['AUTO_SEED'] == 'true';
+  if (autoSeed && _db.getWordCount() == 0) {
+    final url = Platform.environment['OLD_APP_URL'] ?? 'https://cyrillic.suragch.dev/api/collections/words/records';
+    print('AUTO_SEED=true and database is empty. Seeding from $url...');
+    try {
+      final stats = await _db.seedFromOldApp(baseUrl: url, onProgress: (m) => print('[AutoSeed] $m'));
+      print('Auto-seeding completed: $stats');
+    } catch (e) {
+      print('Auto-seeding error: $e');
+    }
+  }
+
   final ip = InternetAddress.anyIPv4;
   final port = int.parse(Platform.environment['PORT'] ?? '8080');
   _pbUrl = Platform.environment['POCKETBASE_URL'] ?? 'http://127.0.0.1:8090';
 
   final pipeline = Pipeline()
       .addMiddleware(logRequests())
+      .addMiddleware(payloadLimitMiddleware())
       .addMiddleware(corsMiddleware())
       .addMiddleware(pocketBaseAuth(pbUrl: _pbUrl))
       .addHandler(_router.call);

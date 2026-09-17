@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 
+import '../../services/file_downloader.dart';
 import '../../services/latin_ime.dart';
 import '../desktop/components/desktop_button.dart';
 import '../desktop/components/desktop_dialog.dart';
@@ -46,6 +47,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
   int _minFrequency = 2; // Default to frequency >= 2
 
   bool _isLoading = false;
+  bool _isDownloadingDb = false;
+  bool _isSyncing = false;
   String? _error;
 
   final FocusNode _keyboardFocusNode = FocusNode();
@@ -132,6 +135,106 @@ class _ModeratorPageState extends State<ModeratorPage> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _downloadDatabaseSnapshot() async {
+    setState(() => _isDownloadingDb = true);
+    try {
+      final res = await http.get(
+        Uri.parse('${widget.serverUrl}/admin/db/download'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 40));
+
+      if (res.statusCode == 200) {
+        final dateStr = DateTime.now().toIso8601String().split('T').first;
+        final filename = 'cyrillic_dictionary_full_$dateStr.db';
+        downloadFileFromBytes(res.bodyBytes, filename, 'application/vnd.sqlite3');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Бүх бааз (.db) амжилттай татагдлаа.')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Бааз татахад алдаа гарлаа: ${res.statusCode}'), backgroundColor: DesktopTheme.danger),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloadingDb = false);
+      }
+    }
+  }
+
+  Future<void> _syncFromOldApp() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => DesktopDialogFrame(
+        title: 'Хуучин системээс татах (Seed)',
+        content: const Text(
+          'cyrillic.suragch.dev системээс бүх үгсийг татаж шинэ бааз руу нэмэх үү?\n(Давхардсан үгсийг автоматаар алгасна)',
+          style: DesktopTheme.body,
+        ),
+        actions: [
+          DesktopButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            label: 'Болих',
+            variant: DesktopButtonVariant.secondary,
+          ),
+          const SizedBox(width: 8),
+          DesktopButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            label: 'Эхлүүлэх',
+            variant: DesktopButtonVariant.primary,
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isSyncing = true);
+    try {
+      final res = await http.post(
+        Uri.parse('${widget.serverUrl}/admin/db/seed'),
+        headers: _headers,
+      ).timeout(const Duration(minutes: 5));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final stats = data['stats'];
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Амжилттай синк хийлээ: ${stats?['imported']} шинэ үг нэмэгдсэн.')),
+          );
+          _loadData();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Синк хийхэд алдаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+      }
     }
   }
 
@@ -697,7 +800,17 @@ class _ModeratorPageState extends State<ModeratorPage> {
             ),
           ),
 
-          const SizedBox(width: 12),
+          // Download DB button
+          DesktopButton(
+            onPressed: _isDownloadingDb ? null : _downloadDatabaseSnapshot,
+            label: 'Бааз татах (.db)',
+            icon: const Icon(Icons.storage, size: 14),
+            variant: DesktopButtonVariant.secondary,
+            isLoading: _isDownloadingDb,
+            isDense: true,
+          ),
+
+          const SizedBox(width: 8),
 
           // Add Word Manual Button
           DesktopButton(
@@ -715,6 +828,15 @@ class _ModeratorPageState extends State<ModeratorPage> {
             icon: const Icon(Icons.add, size: 14),
             variant: DesktopButtonVariant.secondary,
             isDense: true,
+          ),
+
+          const SizedBox(width: 8),
+
+          DesktopIconButton(
+            icon: Icons.cloud_download_outlined,
+            tooltip: 'Хуучин системээс татах (Seed)',
+            size: 16,
+            onPressed: _isSyncing ? null : _syncFromOldApp,
           ),
 
           const SizedBox(width: 8),

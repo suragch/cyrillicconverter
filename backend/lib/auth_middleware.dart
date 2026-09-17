@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:shelf/shelf.dart';
 import 'package:pocketbase/pocketbase.dart';
 
@@ -13,14 +14,28 @@ class AuthContext {
 Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
   return (Handler innerHandler) {
     return (Request request) async {
+      String? token;
       final authHeader = request.headers['authorization'];
-      if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      if (authHeader != null && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7).trim();
+      } else if (request.url.queryParameters.containsKey('token')) {
+        token = request.url.queryParameters['token']?.trim();
+      }
+
+      if (token == null || token.isEmpty) {
         return innerHandler(request.change(context: {'auth': const AuthContext()}));
       }
 
-      final token = authHeader.substring(7).trim();
-      if (token.isEmpty) {
-        return innerHandler(request.change(context: {'auth': const AuthContext()}));
+      // Allow test moderator token if set in environment (for unit & integration tests)
+      final testModToken = Platform.environment['TEST_MODERATOR_TOKEN'];
+      if (testModToken != null && testModToken.isNotEmpty && token == testModToken) {
+        return innerHandler(request.change(context: {
+          'auth': AuthContext(
+            user: RecordModel({'id': 'test-moderator', 'email': 'moderator@test.com', 'role': 'moderator'}),
+            isModerator: true,
+            token: token,
+          ),
+        }));
       }
 
       try {
@@ -29,10 +44,10 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
         final authRecord = await pb.collection('users').authRefresh();
         final user = authRecord.record;
         final role = user.data['role'] as String? ?? '';
-        // If user is valid and role is moderator/admin (or any authenticated user if role not explicitly set)
-        final isModerator = role == 'moderator' || role == 'admin' || user != null;
+        // Only explicitly designated moderators or admins have moderator privileges
+        final isModerator = role == 'moderator' || role == 'admin';
 
-        return innerHandler(request.change(context: {
+        return await innerHandler(request.change(context: {
           'auth': AuthContext(
             user: user,
             isModerator: isModerator,

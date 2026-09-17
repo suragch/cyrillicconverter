@@ -13,12 +13,14 @@ class DictionaryBrowseView extends StatefulWidget {
   final String serverUrl;
   final String? authToken;
   final String? moderatorId;
+  final VoidCallback? onDownloadDictionary;
 
   const DictionaryBrowseView({
     super.key,
     required this.serverUrl,
     this.authToken,
     this.moderatorId,
+    this.onDownloadDictionary,
   });
 
   @override
@@ -58,7 +60,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
     try {
       final res = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(clean)}'),
+        Uri.parse('${widget.serverUrl}/words/check?cyrillic=${Uri.encodeComponent(clean)}'),
         headers: _headers,
       ).timeout(const Duration(seconds: 6));
 
@@ -184,6 +186,15 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                           variant: DesktopButtonVariant.primary,
                           isLoading: _isSearching,
                         ),
+                        if (widget.onDownloadDictionary != null) ...[
+                          const SizedBox(width: 8),
+                          DesktopButton(
+                            onPressed: widget.onDownloadDictionary,
+                            label: 'Толь татах (CSV)',
+                            icon: const Icon(Icons.download_outlined, size: 14),
+                            variant: DesktopButtonVariant.secondary,
+                          ),
+                        ],
                       ],
                     ),
                   ],

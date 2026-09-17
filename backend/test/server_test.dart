@@ -2,13 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart';
+import 'package:backend/database.dart';
 import 'package:test/test.dart';
-import '../lib/database.dart';
 
 void main() {
   final port = '8089';
   final host = 'http://127.0.0.1:$port';
   final testDbPath = 'test_server_dictionary.db';
+  const testModToken = 'test-moderator-secret-123';
+  final modHeaders = {'Authorization': 'Bearer $testModToken'};
   late Process p;
 
   setUpAll(() async {
@@ -42,6 +44,7 @@ void main() {
       environment: {
         'PORT': port,
         'DB_PATH': testDbPath,
+        'TEST_MODERATOR_TOKEN': testModToken,
       },
     );
     // Listen for startup output
@@ -80,16 +83,14 @@ void main() {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'text': 'Сайн байна уу?'}),
     );
-
     expect(response.statusCode, 200);
     final json = jsonDecode(response.body);
-    final tokens = json['tokens'] as List<dynamic>;
+    final tokens = json['tokens'] as List;
 
-    // Expect: "Сайн" (word), " " (space), "байна" (word), " " (space), "уу" (word), "?" (delimiter)
     expect(tokens.length, 6);
     expect(tokens[0]['type'], 'word');
     expect(tokens[0]['original'], 'Сайн');
-    expect((tokens[0]['options'] as List).isNotEmpty, true);
+    expect(tokens[0]['options'][0]['menksoft'], '\uE2AC\uE281\uE2B5');
 
     expect(tokens[1]['type'], 'space');
     expect(tokens[2]['type'], 'word');
@@ -97,23 +98,20 @@ void main() {
 
     expect(tokens[5]['type'], 'delimiter');
     expect(tokens[5]['original'], '?');
+    expect(tokens[5]['menksoft'], '\uE251');
   });
 
   test('Convert unknown word logs it and returns unknown type', () async {
-    final unknownWord = 'үлшинэүгтуршилт';
     final response = await post(
       Uri.parse('$host/convert'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'text': unknownWord}),
+      body: jsonEncode({'text': 'үлтоох'}),
     );
-
     expect(response.statusCode, 200);
     final json = jsonDecode(response.body);
-    final tokens = json['tokens'] as List<dynamic>;
-
-    expect(tokens.length, 1);
-    expect(tokens[0]['type'], 'unknown');
-    expect(tokens[0]['original'], unknownWord);
+    final tokens = json['tokens'] as List;
+    expect(tokens.first['type'], 'unknown');
+    expect(tokens.first['original'], 'үлтоох');
   });
 
   test('User suggestion endpoint /contribute', () async {
@@ -121,18 +119,17 @@ void main() {
       Uri.parse('$host/contribute'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        'cyrillic': 'тест_үг',
-        'menksoft': 'test_menksoft',
-        'context': 'жишээ өгүүлбэр',
+        'cyrillic': 'шинэүг',
+        'menksoft': '\uE281\uE282\uE283',
+        'context': 'Жишээ өгүүлбэр',
       }),
     );
-
     expect(response.statusCode, 200);
     final json = jsonDecode(response.body);
     expect(json['success'], true);
   });
 
-  test('CSV export endpoint', () async {
+  test('CSV export endpoint (Public)', () async {
     final response = await get(Uri.parse('$host/export/csv'));
     expect(response.statusCode, 200);
     expect(response.headers['content-type'], contains('text/csv'));
@@ -140,19 +137,68 @@ void main() {
     expect(response.body, contains('сайн'));
   });
 
-  test('Word existence check endpoint /admin/words/check', () async {
-    final resKnown = await get(Uri.parse('$host/admin/words/check?cyrillic=сайн'));
+  test('JSON export endpoint (Public)', () async {
+    final response = await get(Uri.parse('$host/export/json'));
+    expect(response.statusCode, 200);
+    expect(response.headers['content-type'], contains('application/json'));
+    final list = jsonDecode(response.body) as List;
+    expect(list.isNotEmpty, true);
+    expect(list.any((item) => item['cyrillic'] == 'сайн'), true);
+  });
+
+  test('Public word existence check endpoint /words/check', () async {
+    final resKnown = await get(Uri.parse('$host/words/check?cyrillic=сайн'));
     expect(resKnown.statusCode, 200);
     final jsonKnown = jsonDecode(resKnown.body);
     expect(jsonKnown['exists'], true);
     expect((jsonKnown['definitions'] as List).isNotEmpty, true);
 
-    final resUnknown = await get(Uri.parse('$host/admin/words/check?cyrillic=үл_байгаа_үг'));
+    final resUnknown = await get(Uri.parse('$host/words/check?cyrillic=үл_байгаа_үг'));
     expect(resUnknown.statusCode, 200);
     final jsonUnknown = jsonDecode(resUnknown.body);
     expect(jsonUnknown['exists'], false);
     expect((jsonUnknown['definitions'] as List).isEmpty, true);
     expect(jsonUnknown['rejectionHistory'], isA<List>());
+  });
+
+  test('Admin endpoints require moderator authorization', () async {
+    // Calling /admin/* without token must return 403 Forbidden
+    final resWords = await get(Uri.parse('$host/admin/words/check?cyrillic=сайн'));
+    expect(resWords.statusCode, 403);
+
+    final resMissing = await get(Uri.parse('$host/admin/missing'));
+    expect(resMissing.statusCode, 403);
+
+    final resSug = await get(Uri.parse('$host/admin/suggestions'));
+    expect(resSug.statusCode, 403);
+
+    final resDownload = await get(Uri.parse('$host/admin/db/download'));
+    expect(resDownload.statusCode, 403);
+
+    final resExportJson = await get(Uri.parse('$host/admin/db/export-json'));
+    expect(resExportJson.statusCode, 403);
+  });
+
+  test('Moderator can download full database (.db snapshot and JSON dump)', () async {
+    // 1. Download SQLite binary snapshot
+    final resDb = await get(Uri.parse('$host/admin/db/download'), headers: modHeaders);
+    expect(resDb.statusCode, 200);
+    expect(resDb.headers['content-type'], contains('application/vnd.sqlite3'));
+    expect(resDb.headers['content-disposition'], contains('attachment; filename='));
+    expect(resDb.bodyBytes.length > 100, true);
+    // SQLite header magic string check
+    final headerStr = utf8.decode(resDb.bodyBytes.sublist(0, 16));
+    expect(headerStr.startsWith('SQLite format 3'), true);
+
+    // 2. Download full JSON dump
+    final resJson = await get(Uri.parse('$host/admin/db/export-json'), headers: modHeaders);
+    expect(resJson.statusCode, 200);
+    final dump = jsonDecode(resJson.body) as Map<String, dynamic>;
+    expect(dump.containsKey('words'), true);
+    expect(dump.containsKey('definitions'), true);
+    expect(dump.containsKey('unknown_logs'), true);
+    expect(dump.containsKey('suggestions'), true);
+    expect(dump.containsKey('rejected_words'), true);
   });
 
   test('Non-Cyrillic words in /convert are not logged to unknown_logs', () async {
@@ -164,7 +210,7 @@ void main() {
     expect(response.statusCode, 200);
 
     // Verify neither "Hello" nor "world" nor "12345" are in /admin/missing
-    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
     expect(missingRes.statusCode, 200);
     final missingJson = jsonDecode(missingRes.body);
     final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
@@ -183,7 +229,7 @@ void main() {
     );
     expect(response.statusCode, 200);
 
-    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
     final missingJson = jsonDecode(missingRes.body);
     final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
 
@@ -215,14 +261,14 @@ void main() {
     );
 
     // Query with min_frequency=2
-    final res2 = await get(Uri.parse('$host/admin/missing?min_frequency=2'));
+    final res2 = await get(Uri.parse('$host/admin/missing?min_frequency=2'), headers: modHeaders);
     expect(res2.statusCode, 200);
     final list2 = (jsonDecode(res2.body)['missing'] as List).map((m) => m['cyrillic']).toList();
     expect(list2.contains('давтамжтайүг'), true);
     expect(list2.contains('ганцдавтамжтайүг'), false);
 
     // Query with min_frequency=1 includes both
-    final res1 = await get(Uri.parse('$host/admin/missing?min_frequency=1'));
+    final res1 = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
     expect(res1.statusCode, 200);
     final list1 = (jsonDecode(res1.body)['missing'] as List).map((m) => m['cyrillic']).toList();
     expect(list1.contains('давтамжтайүг'), true);

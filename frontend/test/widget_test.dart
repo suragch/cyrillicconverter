@@ -172,5 +172,21 @@ void main() {
 
       expect(find.text('Системд нэвтрэх'), findsNothing);
     });
+
+    testWidgets('Header renders public dictionary download button', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1280, 800);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+
+      // Download button with download icon must be rendered
+      expect(find.byIcon(Icons.download_outlined), findsWidgets);
+    });
   });
 }

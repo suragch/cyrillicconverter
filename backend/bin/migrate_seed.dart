@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import '../lib/database.dart';
+import 'package:backend/database.dart';
 
 void main() async {
   final dbPath = 'dictionary.db';

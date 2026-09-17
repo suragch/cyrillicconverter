@@ -1,5 +1,5 @@
+import 'package:backend/cyrillic_validator.dart';
 import 'package:test/test.dart';
-import '../lib/cyrillic_validator.dart';
 
 void main() {
   group('CyrillicValidator Tests', () {

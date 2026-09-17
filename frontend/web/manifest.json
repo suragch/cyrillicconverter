@@ -1,12 +1,12 @@
 {
-    "name": "frontend",
-    "short_name": "frontend",
+    "name": "Кирилл ➜ ᠮᠣᠩᠭᠣᠯ Хөрвүүлэгч",
+    "short_name": "Хөрвүүлэгч",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0F172A",
+    "theme_color": "#0F172A",
+    "description": "Кирилл бичгийг уламжлалт монгол бичиг рүү хөрвүүлэх, олон утгат үг болон толь бичиг шалгах цахим систем.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

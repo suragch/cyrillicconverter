@@ -1,49 +1,43 @@
-A server app built using [Shelf](https://pub.dev/packages/shelf),
-configured to enable running with [Docker](https://www.docker.com/).
+# Cyrillic Converter Backend Server
 
-This sample code handles HTTP GET requests to `/` and `/echo/<message>`
+Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional Mongolian conversion engine, dictionary queries, and moderation workflow.
 
-# Running the sample
+## Endpoints
 
-## Running with the Dart SDK
+### Public Endpoints
+- `GET /health`: Server health check.
+- `POST /convert`: Convert Cyrillic text to Mongolian vertical tokens with options and delimiters.
+- `POST /contribute`: Submit a community suggestion for a Cyrillic word definition.
+- `GET /words/check?cyrillic=<word>`: Public dictionary lookup for words and rejection history.
+- `GET /export/csv`: Download all approved dictionary words as CSV (`mongol_dictionary.csv`).
+- `GET /export/json`: Download all approved dictionary words as JSON.
+- `POST /auth/login`: Authenticate with email/password against PocketBase.
+- `GET /auth/me`: Validate user session and retrieve role.
 
-You can run the example with the [Dart SDK](https://dart.dev/get-dart)
-like this:
+### Protected Moderator Endpoints (Requires Bearer token or `?token=`)
+- `GET /admin/words/check`: Check word status with moderator permissions.
+- `GET /admin/missing`: Get queue of unknown words ordered by occurrence frequency.
+- `POST /admin/missing/reject`: Reject a missing word (logs to `rejected_words`).
+- `GET /admin/suggestions`: Get pending user submissions.
+- `POST /admin/suggestions/approve`: Approve a submission into the dictionary.
+- `POST /admin/suggestions/reject`: Reject a submission (logs to `rejected_words`).
+- `POST /admin/words`: Directly add or update a dictionary word definition.
+- `GET /admin/db/download`: Download atomic SQLite binary snapshot (`.db`).
+- `GET /admin/db/export-json`: Download complete JSON database dump.
+- `POST /admin/db/seed`: Trigger background seed from legacy PocketBase upstream.
 
-```
-$ dart run bin/server.dart
-Server listening on port 8080
-```
+## CLI Commands
 
-And then from a second terminal:
-```
-$ curl http://0.0.0.0:8080
-Hello, World!
-$ curl http://0.0.0.0:8080/echo/I_love_Dart
-I_love_Dart
-```
+```bash
+# Run server locally
+dart run bin/server.dart
 
-## Running with Docker
+# Seed data from old app version
+dart run bin/seed.dart --from-old-app
 
-If you have [Docker Desktop](https://www.docker.com/get-started) installed, you
-can build and run with the `docker` command:
+# Create atomic SQLite backup snapshot
+dart run bin/seed.dart --export-backup backup.db
 
-```
-$ docker build . -t myserver
-$ docker run -it -p 8080:8080 myserver
-Server listening on port 8080
-```
-
-And then from a second terminal:
-```
-$ curl http://0.0.0.0:8080
-Hello, World!
-$ curl http://0.0.0.0:8080/echo/I_love_Dart
-I_love_Dart
-```
-
-You should see the logging printed in the first terminal:
-```
-2021-05-06T15:47:04.620417  0:00:00.000158 GET     [200] /
-2021-05-06T15:47:08.392928  0:00:00.001216 GET     [200] /echo/I_love_Dart
+# Run tests
+dart test
 ```

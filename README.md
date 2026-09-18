@@ -1,4 +1,4 @@
-# Cyrillic to Traditional Mongolian Converter (ᠮᠣᠩᠭᠣᠯ ᠬᠥᠪᠢᠷᠭᠦᠯᠦᠭᠴᠢ)
+# Cyrillic to Traditional Mongolian Converter
 
 A high-performance web and desktop suite for converting Mongolian Cyrillic text into Traditional Mongolian vertical script (`ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ`), resolving homonyms, managing dictionary definitions, and crowd-sourcing missing words via an administrative moderation workflow.
 
@@ -43,35 +43,6 @@ flutter run -d macos
 
 ---
 
-## Data Seeding & Migrations
-
-When publishing to a new server or initializing a fresh database, you can populate the dictionary from the previous version of the app (`cyrillic.suragch.dev`):
-
-### Option A: Automatic On-Boot Seeding
-Set the `AUTO_SEED=true` environment variable when starting the server:
-```bash
-AUTO_SEED=true DB_PATH=/data/dictionary.db dart run bin/server.dart
-```
-If the database contains 0 words, it will automatically connect to upstream PocketBase and import all 17,858+ records.
-
-### Option B: CLI Seeder Tool
-```bash
-cd backend
-# Seed from the old app upstream
-dart run bin/seed.dart --from-old-app
-
-# Seed with a custom upstream URL
-dart run bin/seed.dart --from-old-app --url https://cyrillic.suragch.dev/api/collections/words/records
-
-# Seed from a JSON dump
-dart run bin/seed.dart --from-json /path/to/dump.json
-```
-
-### Option C: Remote Web UI Seeding
-Logged-in moderators and administrators can click **"Хуучин системээс татах (Seed)"** directly inside the Moderator Station UI to trigger background synchronization.
-
----
-
 ## Data Downloading & Backups
 
 ### 1. Public Download (Any User)
@@ -106,14 +77,14 @@ docker run -d \
 
 ### Environment Variables Reference
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `PORT` | `8080` | HTTP port for the server. |
-| `DB_PATH` | `dictionary.db` | Absolute or relative path to the SQLite database. Mount to persistent storage. |
-| `AUTO_SEED` | `false` | When `true`, automatically seeds an empty database from the old app on boot. |
-| `OLD_APP_URL` | `https://cyrillic.suragch.dev/...` | PocketBase upstream API endpoint for legacy records. |
-| `POCKETBASE_URL` | `http://127.0.0.1:8090` | PocketBase auth service URL for validating moderator sessions. |
-| `CORS_ORIGIN` | `*` | Allowed CORS origin (set to your domain in production). |
+| Variable         | Default                            | Description                                                                    |
+| :--------------- | :--------------------------------- | :----------------------------------------------------------------------------- |
+| `PORT`           | `8080`                             | HTTP port for the server.                                                      |
+| `DB_PATH`        | `dictionary.db`                    | Absolute or relative path to the SQLite database. Mount to persistent storage. |
+| `AUTO_SEED`      | `false`                            | When `true`, automatically seeds an empty database from the old app on boot.   |
+| `OLD_APP_URL`    | `https://cyrillic.suragch.dev/...` | PocketBase upstream API endpoint for legacy records.                           |
+| `POCKETBASE_URL` | `http://127.0.0.1:8090`            | PocketBase auth service URL for validating moderator sessions.                 |
+| `CORS_ORIGIN`    | `*`                                | Allowed CORS origin (set to your domain in production).                        |
 
 ---
 

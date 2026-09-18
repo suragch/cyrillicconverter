@@ -37,7 +37,8 @@ final _router = Router()
   ..post('/admin/words', requireModerator(_adminAddWordHandler))
   ..get('/admin/db/download', requireModerator(_adminDbDownloadHandler))
   ..get('/admin/db/export-json', requireModerator(_adminDbExportJsonHandler))
-  ..post('/admin/db/seed', requireModerator(_adminDbSeedHandler));
+  ..post('/admin/db/seed', requireModerator(_adminDbSeedHandler))
+  ..post('/admin/moderators', requireModerator(_adminAddModeratorHandler));
 
 Response _healthHandler(Request request) {
   return Response.ok(
@@ -61,9 +62,28 @@ Future<Response> _loginHandler(Request request) async {
     }
 
     final pb = PocketBase(_pbUrl);
-    final authData = await pb.collection('users').authWithPassword(email, password);
+    RecordAuth? authData;
+    bool isSuperuser = false;
+
+    try {
+      authData = await pb.collection('users').authWithPassword(email, password);
+    } catch (_) {
+      try {
+        authData = await pb.collection('_superusers').authWithPassword(email, password);
+        isSuperuser = true;
+      } catch (_) {}
+    }
+
+    if (authData == null) {
+      return Response(
+        401,
+        body: jsonEncode({'error': 'Invalid email or password'}),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+
     final user = authData.record;
-    final role = user.data['role'] as String? ?? '';
+    final role = user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
 
     return Response.ok(
       jsonEncode({
@@ -536,6 +556,59 @@ Future<Response> _adminAddWordHandler(Request request) async {
     );
   } catch (e) {
     return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+  }
+}
+
+Future<Response> _adminAddModeratorHandler(Request request) async {
+  try {
+    final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    final email = (body['email'] as String?)?.trim() ?? '';
+    final password = (body['password'] as String?) ?? '';
+
+    if (email.isEmpty || password.length < 8) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Email and password (min 8 characters) are required'}),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+
+    final pb = PocketBase(_pbUrl);
+    final authHeader = request.headers['authorization'];
+    if (authHeader != null && authHeader.startsWith('Bearer ')) {
+      pb.authStore.save(authHeader.substring(7).trim(), null);
+    }
+
+    RecordModel? createdRecord;
+    try {
+      createdRecord = await pb.collection('_superusers').create(body: {
+        'email': email,
+        'password': password,
+        'passwordConfirm': password,
+      });
+    } catch (_) {
+      createdRecord = await pb.collection('users').create(body: {
+        'email': email,
+        'password': password,
+        'passwordConfirm': password,
+        'role': 'moderator',
+        'emailVisibility': true,
+        'verified': true,
+      });
+    }
+
+    return Response.ok(
+      jsonEncode({
+        'success': true,
+        'email': createdRecord.getStringValue('email').isNotEmpty ? createdRecord.getStringValue('email') : email,
+        'id': createdRecord.id,
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.internalServerError(
+      body: jsonEncode({'error': 'Failed to create moderator: $e'}),
+      headers: {'content-type': 'application/json'},
+    );
   }
 }
 

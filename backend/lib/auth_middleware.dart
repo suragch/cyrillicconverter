@@ -41,11 +41,26 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
       try {
         final pb = PocketBase(pbUrl);
         pb.authStore.save(token, null);
-        final authRecord = await pb.collection('users').authRefresh();
+        RecordAuth? authRecord;
+        bool isSuperuser = false;
+
+        try {
+          authRecord = await pb.collection('users').authRefresh();
+        } catch (_) {
+          try {
+            authRecord = await pb.collection('_superusers').authRefresh();
+            isSuperuser = true;
+          } catch (_) {}
+        }
+
+        if (authRecord == null) {
+          return await innerHandler(request.change(context: {'auth': const AuthContext()}));
+        }
+
         final user = authRecord.record;
-        final role = user.data['role'] as String? ?? '';
-        // Only explicitly designated moderators or admins have moderator privileges
-        final isModerator = role == 'moderator' || role == 'admin';
+        final role = user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
+        // Superusers or designated moderators/admins have moderator privileges
+        final isModerator = isSuperuser || role == 'moderator' || role == 'admin';
 
         return await innerHandler(request.change(context: {
           'auth': AuthContext(

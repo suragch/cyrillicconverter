@@ -24,7 +24,7 @@ build/
 
 # PocketBase
 pb_data/
-pocketbase
+/pocketbase
 
 # Log files
 *.log

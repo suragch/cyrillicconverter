@@ -662,6 +662,149 @@ class _ModeratorPageState extends State<ModeratorPage> {
     );
   }
 
+  void _showAddModeratorDialog() {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool isSubmitting = false;
+    String? dialogError;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => DesktopDialogFrame(
+          title: 'Шинэ модератор нэмэх',
+          leadingIcon: const Icon(Icons.person_add_alt_1_outlined, size: 18, color: DesktopTheme.primary),
+          maxWidth: 440,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Энд шинэ модератор эсвэл админ хэрэглэгчийн бүртгэлийг үүсгэнэ үү.',
+                style: DesktopTheme.body,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'И-мэйл хаяг',
+                  hintText: 'moderator@example.com',
+                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Нууц үг (дор хаяж 8 тэмдэгт)',
+                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPasswordController,
+                obscureText: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Нууц үг баталгаажуулах',
+                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              if (dialogError != null) ...[
+                const SizedBox(height: 10),
+                Text(dialogError!, style: const TextStyle(fontSize: 12, color: DesktopTheme.danger)),
+              ],
+            ],
+          ),
+          actions: [
+            DesktopButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+              label: 'Цуцлах',
+              variant: DesktopButtonVariant.secondary,
+              isDense: true,
+            ),
+            const SizedBox(width: 8),
+            DesktopButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final email = emailController.text.trim();
+                      final password = passwordController.text;
+                      final confirmPassword = confirmPasswordController.text;
+
+                      if (email.isEmpty || !email.contains('@')) {
+                        setDialogState(() => dialogError = 'Зөв и-мэйл хаяг оруулна уу');
+                        return;
+                      }
+                      if (password.length < 8) {
+                        setDialogState(() => dialogError = 'Нууц үг дор хаяж 8 тэмдэгт байх ёстой');
+                        return;
+                      }
+                      if (password != confirmPassword) {
+                        setDialogState(() => dialogError = 'Нууц үг хоорондоо таарахгүй байна');
+                        return;
+                      }
+
+                      setDialogState(() {
+                        isSubmitting = true;
+                        dialogError = null;
+                      });
+
+                      final messenger = ScaffoldMessenger.of(context);
+                      final navigator = Navigator.of(ctx);
+
+                      try {
+                        final res = await http.post(
+                          Uri.parse('${widget.serverUrl}/admin/moderators'),
+                          headers: _headers,
+                          body: jsonEncode({
+                            'email': email,
+                            'password': password,
+                          }),
+                        );
+
+                        if (!mounted) return;
+                        if (res.statusCode == 200) {
+                          navigator.pop();
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Модератор амжилттай бүртгэгдлээ: $email'),
+                              backgroundColor: DesktopTheme.success,
+                            ),
+                          );
+                        } else {
+                          final errData = jsonDecode(res.body);
+                          setDialogState(() {
+                            isSubmitting = false;
+                            dialogError = errData['error']?.toString() ?? 'Бүртгэхэд алдаа гарлаа';
+                          });
+                        }
+                      } catch (e) {
+                        setDialogState(() {
+                          isSubmitting = false;
+                          dialogError = 'Холболтын алдаа: $e';
+                        });
+                      }
+                    },
+              label: 'Нэмэх',
+              variant: DesktopButtonVariant.primary,
+              isLoading: isSubmitting,
+              isDense: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Single-key keyboard navigation handler
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -807,6 +950,15 @@ class _ModeratorPageState extends State<ModeratorPage> {
             icon: const Icon(Icons.storage, size: 14),
             variant: DesktopButtonVariant.secondary,
             isLoading: _isDownloadingDb,
+            isDense: true,
+          ),
+
+          // Add Moderator Button
+          DesktopButton(
+            onPressed: _showAddModeratorDialog,
+            label: 'Админ нэмэх',
+            icon: const Icon(Icons.person_add_alt_1_outlined, size: 14),
+            variant: DesktopButtonVariant.secondary,
             isDense: true,
           ),
 

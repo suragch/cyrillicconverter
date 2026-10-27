@@ -101,6 +101,59 @@ void main() {
     expect(tokens[5]['menksoft'], '\uE251');
   });
 
+  test('Name abbreviation periods are converted to middle dot', () async {
+    // 1. Single abbreviation without whitespace: Д.Сүхбаатар -> middle dot \uE243
+    var response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'Д.Сүхбаатар'}),
+    );
+    expect(response.statusCode, 200);
+    var tokens = jsonDecode(response.body)['tokens'] as List;
+    expect(tokens.length, 3);
+    expect(tokens[0]['original'], 'Д');
+    expect(tokens[1]['type'], 'delimiter');
+    expect(tokens[1]['original'], '.');
+    expect(tokens[1]['menksoft'], '\uE243'); // Middle dot
+    expect(tokens[2]['original'], 'Сүхбаатар');
+
+    // 2. Chained abbreviations without whitespace: Б.Д.Сүхбаатар -> both middle dots
+    response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'Б.Д.Сүхбаатар'}),
+    );
+    expect(response.statusCode, 200);
+    tokens = jsonDecode(response.body)['tokens'] as List;
+    expect(tokens.length, 5);
+    expect(tokens[1]['original'], '.');
+    expect(tokens[1]['menksoft'], '\uE243');
+    expect(tokens[3]['original'], '.');
+    expect(tokens[3]['menksoft'], '\uE243');
+
+    // 3. Abbreviation with whitespace: Д. Сүхбаатар -> standard Mongolian full stop \uE237
+    response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'Д. Сүхбаатар'}),
+    );
+    expect(response.statusCode, 200);
+    tokens = jsonDecode(response.body)['tokens'] as List;
+    expect(tokens[1]['original'], '.');
+    expect(tokens[1]['menksoft'], '\uE237'); // Full stop
+
+    // 4. Regular sentence ending: Монгол улс. -> standard Mongolian full stop \uE237
+    response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'Монгол улс.'}),
+    );
+    expect(response.statusCode, 200);
+    tokens = jsonDecode(response.body)['tokens'] as List;
+    final dotToken = tokens.firstWhere((t) => t['original'] == '.');
+    expect(dotToken['menksoft'], '\uE237');
+  });
+
   test('Convert unknown word logs it and returns unknown type', () async {
     final response = await post(
       Uri.parse('$host/convert'),

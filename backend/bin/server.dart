@@ -188,6 +188,9 @@ String _convertDelimiter(String text) {
   return buffer.toString();
 }
 
+final _singleUppercaseCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]$');
+final _capitalizedCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]');
+
 Future<Response> _convertHandler(Request request) async {
   final content = await request.readAsString();
   try {
@@ -208,10 +211,25 @@ Future<Response> _convertHandler(Request request) async {
           'options': [],
         });
       } else if (token.type == TokenType.delimiter) {
+        String menksoft = _convertDelimiter(token.text);
+        if (token.text == '.') {
+          // Check if this period is part of a name abbreviation without whitespace:
+          // e.g. "Д.Сүхбаатар" or "Б.Д.Сүхбаатар"
+          if (i > 0 && i + 1 < rawTokens.length) {
+            final prev = rawTokens[i - 1];
+            final next = rawTokens[i + 1];
+            if (prev.type == TokenType.word &&
+                _singleUppercaseCyrillicRegex.hasMatch(prev.text) &&
+                next.type == TokenType.word &&
+                _capitalizedCyrillicRegex.hasMatch(next.text)) {
+              menksoft = '\uE243'; // Menksoft vertical middle dot
+            }
+          }
+        }
         resultTokens.add({
           'type': 'delimiter',
           'original': token.text,
-          'menksoft': _convertDelimiter(token.text),
+          'menksoft': menksoft,
           'options': [],
         });
       } else {

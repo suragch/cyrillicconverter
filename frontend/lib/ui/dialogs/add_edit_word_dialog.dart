@@ -17,6 +17,7 @@ class AddEditWordDialog extends StatefulWidget {
   }) onSubmit;
   final String title;
   final String submitButtonText;
+  final bool initialShowKeyboard;
 
   const AddEditWordDialog({
     super.key,
@@ -26,6 +27,7 @@ class AddEditWordDialog extends StatefulWidget {
     required this.onSubmit,
     this.title = 'Үг нэмэх / санал болгох',
     this.submitButtonText = 'Илгээх',
+    this.initialShowKeyboard = false,
   });
 
   @override
@@ -38,11 +40,12 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   late final TextEditingController _explanationController;
   String _previewMenksoft = '';
   bool _isSubmitting = false;
-  bool _showKeyboard = true;
+  late bool _showKeyboard;
 
   @override
   void initState() {
     super.initState();
+    _showKeyboard = widget.initialShowKeyboard;
     _cyrillicController = TextEditingController(text: widget.initialCyrillic);
     _latinController = TextEditingController(text: widget.initialLatin);
     _explanationController = TextEditingController(text: widget.initialExplanation);
@@ -290,9 +293,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                           ('e', 'ᠡ e'),
                           ('i', 'ᠢ i'),
                           ('q', 'ᠣ o'),
-                          ('u', 'ᠤ u'),
+                          ('v', 'ᠤ u'),
                           ('o', 'ᠥ ö'),
-                          ('v', 'ᠦ ü'),
+                          ('u', 'ᠦ ü'),
                           ('E', 'ᠧ ee'),
                         ],
                       ),

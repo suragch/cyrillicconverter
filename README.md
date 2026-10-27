@@ -1,13 +1,13 @@
 # Cyrillic to Traditional Mongolian Converter
 
-A high-performance web and desktop suite for converting Mongolian Cyrillic text into Traditional Mongolian vertical script (`ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ`), resolving homonyms, managing dictionary definitions, and crowd-sourcing missing words via an administrative moderation workflow.
+A web and desktop suite for converting Cyrillic Mongolian text into Traditional Mongolian vertical script (`ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ`), resolving homonyms, managing dictionary definitions, and crowd-sourcing missing words with moderator checking.
 
 ---
 
 ## System Architecture
 
-- **Frontend (`frontend/`)**: Modern Flutter desktop-style workspace with native Menksoft font glyph rendering, vertical mouse drag selection, hover inspect, split-pane layout, zoom controls, and persistent authentication.
-- **Backend (`backend/`)**: High-throughput Dart server built with Shelf and SQLite in WAL mode. Features Cyrillic validation, rate limiting, token authentication via PocketBase, atomic database snapshots, and data export.
+- **Frontend (`frontend/`)**: Flutter desktop-style workspace to convert Cyrillic to traditional script.
+- **Backend (`backend/`)**: Dart server built with Shelf and SQLite in WAL mode. Features Cyrillic validation, token authentication via PocketBase, and data export.
 - **Data Model**:
   - `words` & `definitions`: 17,850+ verified Cyrillic-to-Traditional-Mongolian entries with primary and secondary homonym flags.
   - `unknown_logs`: Automatically aggregates unknown Cyrillic words with occurrence frequency and sentence context.

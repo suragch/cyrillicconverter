@@ -76,26 +76,7 @@ class DesktopHeader extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Brand Logo & Title
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: DesktopTheme.primary,
-                          borderRadius: DesktopTheme.roundedSmall,
-                        ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          'ᠮ',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontFamily: 'Menksoft',
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
+                      // Brand Title
                       const Text(
                         'Кирилл ➜ ᠮᠣᠩᠭᠣᠯ',
                         style: TextStyle(

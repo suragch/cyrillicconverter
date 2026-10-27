@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/main.dart';
 import 'package:frontend/services/latin_ime.dart';
+import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -187,6 +188,54 @@ void main() {
 
       // Download button with download icon must be rendered
       expect(find.byIcon(Icons.download_outlined), findsWidgets);
+    });
+
+    testWidgets('AddEditWordDialog hides keyboard by default and toggles on button press', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AddEditWordDialog(
+                      title: 'Үл мэдэгдэх үг: "тест"',
+                      initialCyrillic: 'тест',
+                      onSubmit: ({required cyrillic, required menksoft, explanation}) async {},
+                    ),
+                  );
+                },
+                child: const Text('Open Dialog'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open the dialog
+      await tester.tap(find.text('Open Dialog'));
+      await tester.pumpAndSettle();
+
+      // Keyboard should be hidden by default
+      expect(find.text('Товчлуур харах'), findsOneWidget);
+      expect(find.text('Эгшиг (Vowels)'), findsNothing);
+
+      // Tap show keyboard button
+      await tester.tap(find.text('Товчлуур харах'));
+      await tester.pumpAndSettle();
+
+      // Keyboard should now be visible
+      expect(find.text('Товчлуур нуух'), findsOneWidget);
+      expect(find.text('Эгшиг (Vowels)'), findsOneWidget);
+
+      // Tap hide keyboard button
+      await tester.tap(find.text('Товчлуур нуух'));
+      await tester.pumpAndSettle();
+
+      // Keyboard should be hidden again
+      expect(find.text('Товчлуур харах'), findsOneWidget);
+      expect(find.text('Эгшиг (Vowels)'), findsNothing);
     });
   });
 }

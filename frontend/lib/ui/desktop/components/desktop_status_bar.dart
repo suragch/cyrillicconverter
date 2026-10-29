@@ -8,10 +8,6 @@ class DesktopStatusBar extends StatelessWidget {
   final int charCount;
   final int homonymCount;
   final int unknownCount;
-  final double fontSize;
-  final VoidCallback? onZoomIn;
-  final VoidCallback? onZoomOut;
-  final String encodingLabel;
   final String serverStatus;
 
   const DesktopStatusBar({
@@ -22,10 +18,6 @@ class DesktopStatusBar extends StatelessWidget {
     this.charCount = 0,
     this.homonymCount = 0,
     this.unknownCount = 0,
-    this.fontSize = 26.0,
-    this.onZoomIn,
-    this.onZoomOut,
-    this.encodingLabel = 'Юникод',
     this.serverStatus = 'Сервер: 8080 (Хэвийн)',
   });
 
@@ -136,56 +128,16 @@ class DesktopStatusBar extends StatelessWidget {
 
                   const SizedBox(width: 16),
 
-                  // --- Right Group: Zoom + Encoding + Server ---
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Үсэг: ${fontSize.toInt()}pt',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: DesktopTheme.textSecondary,
-                          fontFamily: null,
-                        ),
+                  // --- Right Group: Server Status ---
+                  if (!isCompact)
+                    Text(
+                      serverStatus,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: DesktopTheme.textMuted,
+                        fontFamily: null,
                       ),
-                      const SizedBox(width: 4),
-                      _buildCompactZoomBtn(
-                        icon: Icons.remove,
-                        onTap: onZoomOut,
-                        tooltip: 'Жижигсгэх',
-                      ),
-                      _buildCompactZoomBtn(
-                        icon: Icons.add,
-                        onTap: onZoomIn,
-                        tooltip: 'Томосгох',
-                      ),
-                      const SizedBox(width: 10),
-                      _buildDivider(),
-                      const SizedBox(width: 10),
-                      Text(
-                        encodingLabel,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: DesktopTheme.textSecondary,
-                          fontFamily: null,
-                        ),
-                      ),
-                      if (!isCompact) ...[
-                        const SizedBox(width: 10),
-                        _buildDivider(),
-                        const SizedBox(width: 10),
-                        Text(
-                          serverStatus,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: DesktopTheme.textMuted,
-                            fontFamily: null,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                    ),
                 ],
               ),
             ),
@@ -200,31 +152,6 @@ class DesktopStatusBar extends StatelessWidget {
       width: 1,
       height: 14,
       color: DesktopTheme.border,
-    );
-  }
-
-  Widget _buildCompactZoomBtn({
-    required IconData icon,
-    required VoidCallback? onTap,
-    required String tooltip,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: MouseRegion(
-        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              color: DesktopTheme.secondarySurface,
-            ),
-            child: Icon(icon, size: 12, color: DesktopTheme.textSecondary),
-          ),
-        ),
-      ),
     );
   }
 }

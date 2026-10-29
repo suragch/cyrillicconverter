@@ -18,6 +18,25 @@ class LatinIme {
     return convertMongolianUnicodeToLatin(unicode);
   }
 
+  /// Checks whether [text] contains any Traditional Mongolian Unicode (U+1800-U+18AF)
+  /// or Menksoft PUA (U+E234-U+E34F) characters.
+  static bool containsMongolianScript(String text) {
+    return RegExp(r'[\u1800-\u18AF\uE234-\uE34F]').hasMatch(text);
+  }
+
+  /// Converts Mongolian Unicode or Menksoft script to Latin transliteration.
+  /// Trims outer whitespace and handles both Unicode and Menksoft encodings.
+  static String convertToLatin(String text) {
+    var trimmed = text.trim();
+    if (RegExp(r'[\uE234-\uE34F]').hasMatch(trimmed)) {
+      trimmed = convertMenksoftToUnicode(trimmed);
+    }
+    if (RegExp(r'[\u1800-\u18AF]').hasMatch(trimmed)) {
+      return convertMongolianUnicodeToLatin(trimmed);
+    }
+    return trimmed;
+  }
+
   /// Converts standard Mongolian Unicode to Latin transcription.
   static String convertMongolianUnicodeToLatin(String unicodeText) {
     final buffer = StringBuffer();
@@ -130,6 +149,7 @@ class LatinIme {
           buffer.write('Q');
           break;
         case Mongol.mvs:
+        case 0x202F: // Narrow No-Break Space (NNBS)
           buffer.write('-');
           break;
         case Mongol.fvs1:

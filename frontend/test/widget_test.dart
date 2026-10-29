@@ -31,6 +31,29 @@ void main() {
       final derivedLatin = LatinIme.menksoftToLatin(menksoft);
       expect(derivedLatin, latin);
     });
+
+    test('Detects Mongolian script and converts to Latin with whitespace trimming', () {
+      // Cyrillic and English should not be detected as Mongolian script
+      expect(LatinIme.containsMongolianScript('hello world'), false);
+      expect(LatinIme.containsMongolianScript('Сайн байна уу'), false);
+      expect(LatinIme.containsMongolianScript('12345'), false);
+
+      // Mongolian Unicode
+      const unicodeMongol = 'ᠮᠣᠩᠭᠣᠯ';
+      expect(LatinIme.containsMongolianScript(unicodeMongol), true);
+      final latinFromUnicode = LatinIme.convertToLatin('   $unicodeMongol   ');
+      expect(latinFromUnicode, 'mqNgql');
+
+      // Menksoft PUA
+      final menksoft = LatinIme.latinToMenksoft('nom');
+      expect(LatinIme.containsMongolianScript(menksoft), true);
+      final latinFromMenksoft = LatinIme.convertToLatin('  $menksoft  ');
+      expect(latinFromMenksoft, 'nom');
+
+      // NNBS (U+202F) mapped to hyphen (-)
+      const withNnbs = 'ᠮᠣᠩᠭᠣᠯ\u202Fᠤᠨ';
+      expect(LatinIme.convertToLatin(withNnbs), 'mqNgql-vn');
+    });
   });
 
   group('Widget Tests', () {
@@ -282,6 +305,61 @@ void main() {
 
       expect(submitted, true);
       expect(submittedCyrillic, 'ном');
+    });
+
+    testWidgets('Entering or pasting Mongolian Unicode into Latin field converts to Latin', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AddEditWordDialog(
+                      title: 'Үг нэмэх',
+                      initialCyrillic: 'монгол',
+                      onSubmit: ({required cyrillic, required menksoft, explanation}) async {},
+                    ),
+                  );
+                },
+                child: const Text('Open Dialog'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Dialog'));
+      await tester.pumpAndSettle();
+
+      final latinField = find.widgetWithText(TextField, 'Латин галиг');
+      expect(latinField, findsOneWidget);
+
+      // Verify helper text is displayed
+      expect(find.text('Энд монгол бичвэр (Юникод) буулгаж болно'), findsOneWidget);
+
+      // Verify Paste button is present
+      final pasteButton = find.byTooltip('Буулгах');
+      expect(pasteButton, findsOneWidget);
+
+      // Mock clipboard getData
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.getData') {
+            return const <String, dynamic>{'text': '   ᠮᠣᠩᠭᠣᠯ   '};
+          }
+          return null;
+        },
+      );
+
+      await tester.tap(pasteButton);
+      await tester.pumpAndSettle();
+
+      // Should automatically convert to Latin and trim outer whitespace
+      final textFieldWidget = tester.widget<TextField>(latinField);
+      expect(textFieldWidget.controller?.text, 'mqNgql');
     });
   });
 }

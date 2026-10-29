@@ -56,6 +56,14 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
 
   void _onLatinChanged() {
     final text = _latinController.text;
+    if (LatinIme.containsMongolianScript(text)) {
+      final converted = LatinIme.convertToLatin(text);
+      _latinController.value = TextEditingValue(
+        text: converted,
+        selection: TextSelection.collapsed(offset: converted.length),
+      );
+      return;
+    }
     setState(() {
       _previewMenksoft = LatinIme.latinToMenksoft(text);
     });
@@ -253,24 +261,26 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                           if (!_isSubmitting) _submit();
                         },
                         decoration: InputDecoration(
-                          labelText: 'Латин галиг (жишээ: monggol, on, huu)',
+                          labelText: 'Латин галиг',
                           labelStyle: const TextStyle(fontSize: 12),
+                          helperText: 'Энд монгол бичвэр (Юникод) буулгаж болно',
+                          helperStyle: const TextStyle(fontSize: 11, color: DesktopTheme.textMuted),
                           hintText: 'q=o, w=wa, v=u, o=oe, u=ue, E=ee',
                           hintStyle: const TextStyle(fontSize: 11, color: DesktopTheme.textMuted),
                           border: const OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          suffixIcon: _latinController.text.isNotEmpty
-                              ? DesktopIconButton(
-                                  icon: Icons.backspace_outlined,
-                                  size: 14,
-                                  onPressed: () {
-                                    final t = _latinController.text;
-                                    if (t.isNotEmpty) {
-                                      _latinController.text = t.substring(0, t.length - 1);
-                                    }
-                                  },
-                                )
-                              : null,
+                          suffixIcon: DesktopIconButton(
+                            icon: Icons.content_paste,
+                            size: 14,
+                            tooltip: 'Буулгах',
+                            onPressed: () async {
+                              final data = await Clipboard.getData(Clipboard.kTextPlain);
+                              final text = data?.text;
+                              if (text != null && text.isNotEmpty) {
+                                _latinController.text = text;
+                              }
+                            },
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -281,7 +291,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                           if (!_isSubmitting) _submit();
                         },
                         decoration: const InputDecoration(
-                          labelText: 'Тайлбар / утга (жишээ: он жил, төр засаг)',
+                          labelText: 'Тайлбар (заавал биш)',
                           labelStyle: TextStyle(fontSize: 12),
                           border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
                           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),

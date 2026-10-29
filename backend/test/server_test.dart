@@ -167,6 +167,28 @@ void main() {
     expect(tokens.first['original'], 'үлтоох');
   });
 
+  test('Abbreviations preserve uppercase when converted and checked', () async {
+    // 1. Convert text containing unknown abbreviation and sentence-capitalized word
+    final response = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': 'МУИС бол их сургууль. Бөртэ ирэв.'}),
+    );
+    expect(response.statusCode, 200);
+
+    // 2. Check /words/check endpoint for abbreviation
+    final checkAbbr = await get(Uri.parse('$host/words/check?cyrillic=МУИС'));
+    expect(checkAbbr.statusCode, 200);
+    final abbrData = jsonDecode(checkAbbr.body);
+    expect(abbrData['cyrillic'], 'МУИС'); // Preserves uppercase for abbreviation
+
+    // 3. Check /words/check endpoint for capitalized regular word
+    final checkWord = await get(Uri.parse('$host/words/check?cyrillic=Бөртэ'));
+    expect(checkWord.statusCode, 200);
+    final wordData = jsonDecode(checkWord.body);
+    expect(wordData['cyrillic'], 'бөртэ'); // Normalized to lowercase
+  });
+
   test('User suggestion endpoint /contribute', () async {
     final response = await post(
       Uri.parse('$host/contribute'),

@@ -18,6 +18,24 @@ class LatinIme {
     return convertMongolianUnicodeToLatin(unicode);
   }
 
+  /// Returns true if [word] is an abbreviation (e.g. 'МУИС', 'УИХ', 'АН', 'УИХ-ын').
+  static bool isAbbreviation(String word) {
+    final trimmed = word.trim();
+    final standalone = RegExp(r'^[А-ЯЁӨҮ]{2,}$');
+    final suffixed = RegExp(r'^[А-ЯЁӨҮ]{2,}-[а-яёөүА-ЯЁӨҮ]+$');
+    return standalone.hasMatch(trimmed) || suffixed.hasMatch(trimmed);
+  }
+
+  /// Normalizes a Cyrillic word: preserves uppercase for abbreviations,
+  /// converts regular words to lowercase to avoid duplicate entries.
+  static String normalizeCyrillic(String word) {
+    final trimmed = word.trim();
+    if (isAbbreviation(trimmed)) {
+      return trimmed;
+    }
+    return trimmed.toLowerCase();
+  }
+
   /// Checks whether [text] contains any Traditional Mongolian Unicode (U+1800-U+18AF)
   /// or Menksoft PUA (U+E234-U+E34F) characters.
   static bool containsMongolianScript(String text) {

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:sqlite3/sqlite3.dart';
+import 'cyrillic_validator.dart';
 
 class AppDatabase {
   final Database db;
@@ -84,13 +85,24 @@ class AppDatabase {
   }
 
   /// Looks up definitions for a Cyrillic word.
+  /// If the word is an abbreviation (e.g. 'МУИС', 'УИХ', 'АН', 'УИХ-ын'), checks exact match first,
+  /// then falls back to lowercase match. For regular words, checks lowercase match.
   /// Returns a list of maps: [{'menksoft': '...', 'explanation': '...', 'isDefault': true/false}]
   List<Map<String, dynamic>> lookupWord(String rawWord) {
-    final normalized = rawWord.trim().toLowerCase();
-    if (normalized.isEmpty) return [];
+    final trimmed = rawWord.trim();
+    if (trimmed.isEmpty) return [];
 
+    if (CyrillicValidator.isAbbreviation(trimmed)) {
+      final exactDefs = _queryDefinitionsByCyrillic(trimmed);
+      if (exactDefs.isNotEmpty) return exactDefs;
+    }
+
+    return _queryDefinitionsByCyrillic(trimmed.toLowerCase());
+  }
+
+  List<Map<String, dynamic>> _queryDefinitionsByCyrillic(String cyrillic) {
     final stmtWord = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
-    final wordResult = stmtWord.select([normalized]);
+    final wordResult = stmtWord.select([cyrillic]);
     stmtWord.close();
 
     if (wordResult.isEmpty) return [];
@@ -112,8 +124,9 @@ class AppDatabase {
   }
 
   /// Logs or increments frequency of an unknown word.
+  /// Preserves uppercase casing for abbreviations, normalizes regular words to lowercase.
   void logUnknownWord(String rawWord, {String? context}) {
-    final normalized = rawWord.trim().toLowerCase();
+    final normalized = CyrillicValidator.normalizeWord(rawWord);
     if (normalized.isEmpty) return;
 
     db.execute('''
@@ -165,7 +178,7 @@ class AppDatabase {
     bool isPrimary = true,
     String? verifiedBy,
   }) {
-    final normalized = cyrillic.trim().toLowerCase();
+    final normalized = CyrillicValidator.normalizeWord(cyrillic);
     final stmtWord = db.prepare('INSERT OR IGNORE INTO words (cyrillic) VALUES (?)');
     stmtWord.execute([normalized]);
     stmtWord.close();
@@ -229,7 +242,10 @@ class AppDatabase {
     );
 
     // Also remove from unknown_logs if it was logged
-    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [finalCyrillic.trim().toLowerCase()]);
+    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
+      finalCyrillic.trim(),
+      finalCyrillic.trim().toLowerCase(),
+    ]);
   }
 
   /// Records a rejected word into the rejected_words table for future study.
@@ -283,28 +299,34 @@ class AppDatabase {
 
   /// Moderator review: Reject missing word from unknown_logs and log to rejected_words table.
   void rejectMissingWord(String cyrillic, {required String reason, String? reviewedBy}) {
-    final normalized = cyrillic.trim().toLowerCase();
-    final rows = db.select('SELECT * FROM unknown_logs WHERE cyrillic = ?', [normalized]);
+    final normalized = CyrillicValidator.normalizeWord(cyrillic);
+    final rows = db.select('SELECT * FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
+      normalized,
+      normalized.toLowerCase(),
+    ]);
     final lastContext = rows.isNotEmpty ? (rows.first['last_context'] as String?) : null;
 
     logRejectedWord(
-      cyrillic: cyrillic.trim(),
+      cyrillic: normalized,
       reason: reason,
       details: lastContext,
       source: 'unknown_log',
       reviewedBy: reviewedBy,
     );
 
-    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [normalized]);
+    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
+      normalized,
+      normalized.toLowerCase(),
+    ]);
   }
 
   /// Returns previous rejections for a word from rejected_words for informational display.
   List<Map<String, dynamic>> getRejectionHistory(String cyrillic) {
-    final normalized = cyrillic.trim().toLowerCase();
-    if (normalized.isEmpty) return [];
+    final trimmed = cyrillic.trim();
+    if (trimmed.isEmpty) return [];
     final results = db.select(
-      'SELECT id, cyrillic, menksoft_code, reason, details, reviewed_by, created_at FROM rejected_words WHERE LOWER(cyrillic) = ? ORDER BY created_at DESC',
-      [normalized],
+      'SELECT id, cyrillic, menksoft_code, reason, details, reviewed_by, created_at FROM rejected_words WHERE cyrillic = ? OR LOWER(cyrillic) = ? ORDER BY created_at DESC',
+      [trimmed, trimmed.toLowerCase()],
     );
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -397,7 +419,7 @@ class AppDatabase {
             continue;
           }
 
-          final normalized = cyrillic.toLowerCase();
+          final normalized = CyrillicValidator.normalizeWord(cyrillic);
 
           // 1. Insert word
           db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [normalized]);

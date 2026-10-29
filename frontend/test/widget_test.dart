@@ -54,6 +54,18 @@ void main() {
       const withNnbs = 'ᠮᠣᠩᠭᠣᠯ\u202Fᠤᠨ';
       expect(LatinIme.convertToLatin(withNnbs), 'mqNgql-vn');
     });
+
+    test('Identifies abbreviations and normalizes Cyrillic words', () {
+      expect(LatinIme.isAbbreviation('МУИС'), true);
+      expect(LatinIme.isAbbreviation('УИХ-ын'), true);
+      expect(LatinIme.isAbbreviation('Монгол'), false);
+      expect(LatinIme.isAbbreviation('ном'), false);
+
+      expect(LatinIme.normalizeCyrillic('МУИС'), 'МУИС');
+      expect(LatinIme.normalizeCyrillic('УИХ-ын'), 'УИХ-ын');
+      expect(LatinIme.normalizeCyrillic('Монгол'), 'монгол');
+      expect(LatinIme.normalizeCyrillic('Ном'), 'ном');
+    });
   });
 
   group('Widget Tests', () {

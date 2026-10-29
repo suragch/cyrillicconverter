@@ -1,9 +1,34 @@
+import 'package:backend/cyrillic_validator.dart';
 import 'package:backend/database.dart';
 import 'package:backend/tokenizer.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('CyrillicValidator Tests', () {
+    test('Identifies abbreviations and suffixed abbreviations', () {
+      expect(CyrillicValidator.isAbbreviation('МУИС'), true);
+      expect(CyrillicValidator.isAbbreviation('УИХ'), true);
+      expect(CyrillicValidator.isAbbreviation('АН'), true);
+      expect(CyrillicValidator.isAbbreviation('УИХ-ын'), true);
+      expect(CyrillicValidator.isAbbreviation('МУИС-д'), true);
+      expect(CyrillicValidator.isAbbreviation('АНУ-аас'), true);
+
+      expect(CyrillicValidator.isAbbreviation('Монгол'), false);
+      expect(CyrillicValidator.isAbbreviation('ном'), false);
+      expect(CyrillicValidator.isAbbreviation('Баян-Өлгий'), false);
+      expect(CyrillicValidator.isAbbreviation('Энэ'), false);
+      expect(CyrillicValidator.isAbbreviation(''), false);
+    });
+
+    test('Normalizes regular words to lowercase and preserves abbreviation casing', () {
+      expect(CyrillicValidator.normalizeWord('МУИС'), 'МУИС');
+      expect(CyrillicValidator.normalizeWord('УИХ-ын'), 'УИХ-ын');
+      expect(CyrillicValidator.normalizeWord('Монгол'), 'монгол');
+      expect(CyrillicValidator.normalizeWord('НОМ'), 'НОМ'); // 3-letter all-caps is treated as abbreviation unless fallback
+      expect(CyrillicValidator.normalizeWord('Ном'), 'ном');
+    });
+  });
   group('Tokenizer Tests', () {
     test('Tokenizes Cyrillic words, whitespace, and punctuation cleanly', () {
       final input = 'Сайн байна уу? "Монгол" улс, 2026 онд.';
@@ -118,6 +143,54 @@ void main() {
       final options = appDb.lookupWord('туршилт');
       expect(options.isNotEmpty, true);
       expect(options.first['menksoft'], 'menk_test');
+    });
+
+    test('Abbreviations and regular words do not collide', () {
+      // Add lowercase 'ан' (hunting / game)
+      appDb.addWordDefinition(
+        cyrillic: 'ан',
+        menksoft: 'menk_hunting',
+        explanation: 'hunting / game',
+      );
+
+      // Add uppercase abbreviation 'АН' (Democratic Party)
+      appDb.addWordDefinition(
+        cyrillic: 'АН',
+        menksoft: 'menk_party',
+        explanation: 'Democratic Party',
+      );
+
+      // Lookup 'ан' returns 'menk_hunting'
+      final lowerOptions = appDb.lookupWord('ан');
+      expect(lowerOptions.length, 1);
+      expect(lowerOptions.first['menksoft'], 'menk_hunting');
+
+      // Lookup 'АН' returns 'menk_party'
+      final upperOptions = appDb.lookupWord('АН');
+      expect(upperOptions.length, 1);
+      expect(upperOptions.first['menksoft'], 'menk_party');
+
+      // All-caps emphasis word without abbreviation definition falls back to lowercase
+      appDb.addWordDefinition(
+        cyrillic: 'анхаар',
+        menksoft: 'menk_attention',
+        explanation: 'attention',
+      );
+      final fallbackOptions = appDb.lookupWord('АНХААР');
+      expect(fallbackOptions.length, 1);
+      expect(fallbackOptions.first['menksoft'], 'menk_attention');
+    });
+
+    test('Unknown abbreviation logs in uppercase and normal words in lowercase', () {
+      appDb.logUnknownWord('МУИС', context: 'МУИС-ийн оюутнууд');
+      appDb.logUnknownWord('УИХ-ын', context: 'УИХ-ын гишүүд');
+      appDb.logUnknownWord('Нохой', context: 'Нохой хуцав'); // TitleCase start of sentence
+
+      final top = appDb.getTopUnknownWords();
+      final words = top.map((w) => w['cyrillic']).toList();
+
+      expect(words, containsAll(['МУИС', 'УИХ-ын', 'нохой']));
+      expect(words, isNot(contains('Нохой')));
     });
   });
 }

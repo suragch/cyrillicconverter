@@ -289,7 +289,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         // Apply any session local overrides
         for (var i = 0; i < parsed.length; i++) {
           final t = parsed[i];
-          final norm = t.original.trim().toLowerCase();
+          final norm = LatinIme.normalizeCyrillic(t.original);
           if (_localOverrides.containsKey(norm)) {
             parsed[i] = Token(
               type: 'word',
@@ -455,13 +455,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
     required String menksoft,
     String? explanation,
   }) async {
-    final normalized = cyrillic.trim().toLowerCase();
+    final normalized = LatinIme.normalizeCyrillic(cyrillic);
 
     // 1. Immediately update local conversion display in place
     setState(() {
       _localOverrides[normalized] = menksoft;
       for (var i = 0; i < _tokens.length; i++) {
-        if (_tokens[i].original.trim().toLowerCase() == normalized) {
+        if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
           _tokens[i] = Token(
             type: 'word',
             original: _tokens[i].original,

@@ -444,16 +444,17 @@ Future<Response> _adminSuggestionsHandler(Request request) async {
 }
 
 Future<Response> _adminCheckWordHandler(Request request) async {
-  final cyrillic = request.url.queryParameters['cyrillic']?.trim().toLowerCase() ?? '';
-  if (cyrillic.isEmpty) {
+  final rawCyrillic = request.url.queryParameters['cyrillic']?.trim() ?? '';
+  if (rawCyrillic.isEmpty) {
     return Response.ok(
       jsonEncode({'exists': false, 'definitions': [], 'rejectionHistory': []}),
       headers: {'content-type': 'application/json'},
     );
   }
 
-  final defs = _db.lookupWord(cyrillic);
-  final rejectionHistory = _db.getRejectionHistory(cyrillic);
+  final cyrillic = CyrillicValidator.normalizeWord(rawCyrillic);
+  final defs = _db.lookupWord(rawCyrillic);
+  final rejectionHistory = _db.getRejectionHistory(rawCyrillic);
   return Response.ok(
     jsonEncode({
       'cyrillic': cyrillic,
@@ -566,7 +567,10 @@ Future<Response> _adminAddWordHandler(Request request) async {
     );
 
     // Also remove from unknown_logs if it was there
-    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic = ?', [cyrillic.trim().toLowerCase()]);
+    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
+      cyrillic.trim(),
+      cyrillic.trim().toLowerCase(),
+    ]);
 
     return Response.ok(
       jsonEncode({'success': true, 'wordId': wordId}),

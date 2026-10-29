@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/main.dart';
 import 'package:frontend/services/latin_ime.dart';
@@ -236,6 +237,51 @@ void main() {
       // Keyboard should be hidden again
       expect(find.text('Товчлуур харах'), findsOneWidget);
       expect(find.text('Эгшиг (Vowels)'), findsNothing);
+    });
+
+    testWidgets('Pressing Enter in AddEditWordDialog triggers onSubmit', (tester) async {
+      bool submitted = false;
+      String? submittedCyrillic;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AddEditWordDialog(
+                      title: 'Үг нэмэх',
+                      submitButtonText: 'Хадгалах',
+                      initialCyrillic: 'ном',
+                      initialLatin: 'nom',
+                      onSubmit: ({required cyrillic, required menksoft, explanation}) async {
+                        submitted = true;
+                        submittedCyrillic = cyrillic;
+                      },
+                    ),
+                  );
+                },
+                child: const Text('Open Dialog'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open dialog
+      await tester.tap(find.text('Open Dialog'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Хадгалах'), findsOneWidget);
+
+      // Press Enter key
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(submitted, true);
+      expect(submittedCyrillic, 'ном');
     });
   });
 }

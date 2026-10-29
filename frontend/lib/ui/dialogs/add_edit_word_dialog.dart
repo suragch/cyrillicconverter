@@ -83,6 +83,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) return;
     final cyrillic = _cyrillicController.text.trim();
     if (cyrillic.isEmpty) return;
 
@@ -111,8 +112,17 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   Widget build(BuildContext context) {
     final isCyrillicFixed = widget.initialCyrillic != null;
 
-    return SelectionArea(
-      child: DesktopDialogFrame(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter): () {
+          if (!_isSubmitting) _submit();
+        },
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () {
+          if (!_isSubmitting) _submit();
+        },
+      },
+      child: SelectionArea(
+        child: DesktopDialogFrame(
         title: widget.title,
         maxWidth: 700,
         maxHeight: 740,
@@ -207,6 +217,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                         TextField(
                           controller: _cyrillicController,
                           style: const TextStyle(fontSize: 13),
+                          onSubmitted: (_) {
+                            if (!_isSubmitting) _submit();
+                          },
                           decoration: InputDecoration(
                             labelText: 'Кирилл үг',
                             labelStyle: const TextStyle(fontSize: 12),
@@ -236,6 +249,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                         controller: _latinController,
                         autofocus: true,
                         style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                        onSubmitted: (_) {
+                          if (!_isSubmitting) _submit();
+                        },
                         decoration: InputDecoration(
                           labelText: 'Латин галиг (жишээ: monggol, on, huu)',
                           labelStyle: const TextStyle(fontSize: 12),
@@ -261,6 +277,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                       TextField(
                         controller: _explanationController,
                         style: const TextStyle(fontSize: 13),
+                        onSubmitted: (_) {
+                          if (!_isSubmitting) _submit();
+                        },
                         decoration: const InputDecoration(
                           labelText: 'Тайлбар / утга (жишээ: он жил, төр засаг)',
                           labelStyle: TextStyle(fontSize: 12),
@@ -373,8 +392,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildKeyboardCategory(String label, List<(String key, String display)> items) {
     return Column(

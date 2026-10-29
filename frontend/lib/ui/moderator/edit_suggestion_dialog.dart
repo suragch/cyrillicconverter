@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 import '../../services/latin_ime.dart';
@@ -137,6 +138,7 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
   }
 
   Future<void> _handleSave({required bool andApprove}) async {
+    if (_isSaving) return;
     final cyrillic = _cyrillicController.text.trim();
     if (cyrillic.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -198,8 +200,17 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
     final exists = _cyrillicCheckResult?['exists'] == true;
     final definitions = (_cyrillicCheckResult?['definitions'] as List?) ?? [];
 
-    return SelectionArea(
-      child: DesktopDialogFrame(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter): () {
+          if (!_isSaving) _handleSave(andApprove: false);
+        },
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () {
+          if (!_isSaving) _handleSave(andApprove: false);
+        },
+      },
+      child: SelectionArea(
+        child: DesktopDialogFrame(
         title: 'Санал засах',
         maxWidth: 740,
         maxHeight: 780,
@@ -257,6 +268,9 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                       TextField(
                         controller: _cyrillicController,
                         style: const TextStyle(fontSize: 13),
+                        onSubmitted: (_) {
+                          if (!_isSaving) _handleSave(andApprove: false);
+                        },
                         decoration: InputDecoration(
                           labelText: 'Кирилл бичлэг',
                           labelStyle: const TextStyle(fontSize: 12),
@@ -330,6 +344,9 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                       TextField(
                         controller: _latinController,
                         style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                        onSubmitted: (_) {
+                          if (!_isSaving) _handleSave(andApprove: false);
+                        },
                         decoration: InputDecoration(
                           labelText: 'Латин галиг (жишээ: monggol, on, huu)',
                           labelStyle: const TextStyle(fontSize: 12),
@@ -356,6 +373,9 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                       TextField(
                         controller: _explanationController,
                         style: const TextStyle(fontSize: 13),
+                        onSubmitted: (_) {
+                          if (!_isSaving) _handleSave(andApprove: false);
+                        },
                         decoration: const InputDecoration(
                           labelText: 'Тэмдэглэл / утга (зөвхөн олон утгатай үгсэд)',
                           labelStyle: TextStyle(fontSize: 12),
@@ -467,8 +487,9 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildKeyboardCategory(String label, List<(String key, String display)> items) {
     return Column(

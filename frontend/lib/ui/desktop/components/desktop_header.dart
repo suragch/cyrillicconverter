@@ -4,17 +4,10 @@ import 'desktop_button.dart';
 
 enum DesktopNavTab { converter, moderator, dictionary }
 
-enum HeaderExportEncoding { unicode, menksoft }
-
 class DesktopHeader extends StatelessWidget {
   final DesktopNavTab activeTab;
   final ValueChanged<DesktopNavTab> onTabChanged;
   final int moderatorBadgeCount;
-  final double fontSize;
-  final VoidCallback onZoomIn;
-  final VoidCallback onZoomOut;
-  final HeaderExportEncoding copyEncoding;
-  final ValueChanged<HeaderExportEncoding> onEncodingChanged;
   final bool isRestoringSession;
   final bool isLoggedIn;
   final Map<String, dynamic>? currentUser;
@@ -26,11 +19,6 @@ class DesktopHeader extends StatelessWidget {
     required this.activeTab,
     required this.onTabChanged,
     this.moderatorBadgeCount = 0,
-    required this.fontSize,
-    required this.onZoomIn,
-    required this.onZoomOut,
-    required this.copyEncoding,
-    required this.onEncodingChanged,
     required this.isRestoringSession,
     required this.isLoggedIn,
     this.currentUser,
@@ -102,99 +90,10 @@ class DesktopHeader extends StatelessWidget {
 
                   const SizedBox(width: 16),
 
-                  // --- Right Group: Zoom + Encoding + Help + Auth ---
+                  // --- Right Group: User / Auth Strip ---
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Zoom Controls: [A-] 26pt [A+]
-                      Container(
-                        height: 28,
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          color: DesktopTheme.secondarySurface,
-                          borderRadius: DesktopTheme.roundedSmall,
-                          border: Border.all(
-                            color: DesktopTheme.border,
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildHeaderIconBtn(
-                              text: 'A-',
-                              tooltip: 'Үсэг жижигсгэх',
-                              onTap: onZoomOut,
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              child: Text(
-                                '${fontSize.toInt()}pt',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: DesktopTheme.textSecondary,
-                                ),
-                              ),
-                            ),
-                            _buildHeaderIconBtn(
-                              text: 'A+',
-                              tooltip: 'Үсэг томосгох',
-                              onTap: onZoomIn,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(width: 8),
-
-                      // Copy Encoding Selector
-                      Container(
-                        height: 28,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          color: DesktopTheme.secondarySurface,
-                          borderRadius: DesktopTheme.roundedSmall,
-                          border: Border.all(
-                            color: DesktopTheme.border,
-                            width: 1,
-                          ),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<HeaderExportEncoding>(
-                            value: copyEncoding,
-                            isDense: true,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: DesktopTheme.textPrimary,
-                              fontFamily: null,
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                value: HeaderExportEncoding.unicode,
-                                child: Text('Unicode'),
-                              ),
-                              DropdownMenuItem(
-                                value: HeaderExportEncoding.menksoft,
-                                child: Text('Menksoft'),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                onEncodingChanged(val);
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 8),
-                      _buildVerticalDivider(),
-                      const SizedBox(width: 8),
-
                       // User / Auth Strip
                       if (isRestoringSession)
                         const SizedBox(
@@ -357,33 +256,5 @@ class DesktopHeader extends StatelessWidget {
 
   Widget _buildVerticalDivider() {
     return Container(width: 1, height: 18, color: DesktopTheme.border);
-  }
-
-  Widget _buildHeaderIconBtn({
-    required String text,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(2)),
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: DesktopTheme.textPrimary,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

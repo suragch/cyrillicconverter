@@ -1048,19 +1048,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   setState(() => _activeTab = tab);
                 },
                 moderatorBadgeCount: _moderatorQueueCount,
-                fontSize: _fontSize,
-                onZoomIn: _zoomIn,
-                onZoomOut: _zoomOut,
-                copyEncoding: _copyEncoding == ExportEncoding.unicode
-                    ? HeaderExportEncoding.unicode
-                    : HeaderExportEncoding.menksoft,
-                onEncodingChanged: (enc) {
-                  setState(() {
-                    _copyEncoding = enc == HeaderExportEncoding.unicode
-                        ? ExportEncoding.unicode
-                        : ExportEncoding.menksoft;
-                  });
-                },
                 isRestoringSession: _isRestoringSession,
                 isLoggedIn: _isLoggedIn,
                 currentUser: _currentUser,
@@ -1362,16 +1349,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   ),
                   const SizedBox(width: 8),
                 ],
-                DesktopButton(
-                  onPressed: _tokens.isNotEmpty
-                      ? () => _copyToClipboard()
-                      : null,
-                  label: 'Хуулах',
-                  icon: const Icon(Icons.copy, size: 13),
-                  shortcutHint: '⌘C',
-                  variant: DesktopButtonVariant.secondary,
-                  isDense: true,
-                ),
+                _buildSplitCopyButton(),
               ],
             ),
           ),
@@ -1408,19 +1386,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Хөрвүүлсэн текст энд босоо монгол бичгээр гарна.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: DesktopTheme.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Зүүн талын талбарт кирилл бичвэрээ оруулаад "Хөрвүүлэх" (⌘+Enter) дарна уу.',
-                            style: DesktopTheme.caption,
-                          ),
                         ],
                       ],
                     ),
@@ -1445,7 +1410,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   ),
           ),
 
-          // Panel Footer Status & Legend
+          // Panel Footer Status & Legend & Font Resizer
           Container(
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1459,26 +1424,30 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 top: BorderSide(color: DesktopTheme.border, width: 1),
               ),
             ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
+            child: Row(
+              children: [
+                if (_tokens.any(
+                  (t) => t.type == 'word' && t.options.length > 1,
+                )) ...[
                   _buildLegendDot(
                     color: DesktopTheme.primary,
                     label: 'Олон утгатай',
                   ),
+                ],
+                if (_tokens.any(
+                      (t) => t.type == 'word' && t.options.length > 1,
+                    ) &&
+                    _tokens.any((t) => t.type == 'unknown'))
                   const SizedBox(width: 14),
+                if (_tokens.any((t) => t.type == 'unknown')) ...[
                   _buildLegendDot(
                     color: DesktopTheme.danger,
                     label: 'Тольд үгүй',
                   ),
-                  const SizedBox(width: 14),
-                  const Text(
-                    '• Үг дээр товшиж утга сонгох / засах',
-                    style: DesktopTheme.caption,
-                  ),
                 ],
-              ),
+                const Spacer(),
+                _buildFontResizer(),
+              ],
             ),
           ),
         ],
@@ -1504,6 +1473,218 @@ class _ConverterScreenState extends State<ConverterScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSplitCopyButton() {
+    final isEnabled = _tokens.isNotEmpty;
+    final encodingLabel = _copyEncoding == ExportEncoding.unicode
+        ? 'Юникод'
+        : 'Menksoft';
+
+    return Container(
+      height: 28,
+      decoration: BoxDecoration(
+        color: DesktopTheme.panelBackground,
+        borderRadius: DesktopTheme.roundedSmall,
+        border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message: 'Хуулах ($encodingLabel) [⌘C]',
+            child: InkWell(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(DesktopTheme.radiusSmall),
+                bottomLeft: Radius.circular(DesktopTheme.radiusSmall),
+              ),
+              onTap: isEnabled ? () => _copyToClipboard() : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.copy,
+                      size: 13,
+                      color: isEnabled
+                          ? DesktopTheme.textPrimary
+                          : DesktopTheme.textMuted,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Хуулах',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: isEnabled
+                            ? DesktopTheme.textPrimary
+                            : DesktopTheme.textMuted,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: DesktopTheme.secondarySurface,
+                        borderRadius: BorderRadius.circular(3),
+                        border: Border.all(
+                          color: DesktopTheme.borderMedium,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '⌘C',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w600,
+                          color: isEnabled
+                              ? DesktopTheme.textSecondary
+                              : DesktopTheme.textMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Container(width: 1, height: 16, color: DesktopTheme.borderMedium),
+          MenuAnchor(
+            builder: (context, controller, child) {
+              return Tooltip(
+                message: 'Хуулах хэлбэр сонгох (Одоо: $encodingLabel)',
+                child: InkWell(
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(DesktopTheme.radiusSmall),
+                    bottomRight: Radius.circular(DesktopTheme.radiusSmall),
+                  ),
+                  onTap: () {
+                    if (controller.isOpen) {
+                      controller.close();
+                    } else {
+                      controller.open();
+                    }
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Icon(
+                      Icons.arrow_drop_down,
+                      size: 18,
+                      color: DesktopTheme.textSecondary,
+                    ),
+                  ),
+                ),
+              );
+            },
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: _copyEncoding == ExportEncoding.unicode
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: DesktopTheme.primary,
+                        )
+                      : null,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _copyEncoding = ExportEncoding.unicode;
+                  });
+                  _showToast('Хуулах хэлбэр: Юникод (Unicode)');
+                },
+                child: const Text('Юникод (Unicode)'),
+              ),
+              MenuItemButton(
+                leadingIcon: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: _copyEncoding == ExportEncoding.menksoft
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: DesktopTheme.primary,
+                        )
+                      : null,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _copyEncoding = ExportEncoding.menksoft;
+                  });
+                  _showToast('Хуулах хэлбэр: Menksoft код');
+                },
+                child: const Text('Menksoft код'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFontResizer() {
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: DesktopTheme.secondarySurface,
+        borderRadius: DesktopTheme.roundedSmall,
+        border: Border.all(color: DesktopTheme.border, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildZoomBtn(text: 'A-', tooltip: 'Үсэг жижигсгэх', onTap: _zoomOut),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '${_fontSize.toInt()}pt',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: DesktopTheme.textSecondary,
+              ),
+            ),
+          ),
+          _buildZoomBtn(text: 'A+', tooltip: 'Үсэг томосгох', onTap: _zoomIn),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildZoomBtn({
+    required String text,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(2)),
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: DesktopTheme.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

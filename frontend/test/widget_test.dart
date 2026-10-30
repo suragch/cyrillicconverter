@@ -655,5 +655,72 @@ void main() {
         expect(find.byIcon(Icons.cloud_download_outlined), findsNothing);
       },
     );
+
+    testWidgets(
+      'Output panel footer hides color legend on empty state and hides explanation text',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 800);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Footer color dots should NOT be visible when no words are converted
+        expect(find.text('Олон утгатай'), findsNothing);
+        expect(find.text('Тольд үгүй'), findsNothing);
+
+        // Explanation text should be completely removed
+        expect(find.textContaining('Үг дээр товшиж утга сонгох'), findsNothing);
+
+        // Right-aligned font resizer is still present in the footer
+        expect(find.text('26pt'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Split copy button has dropdown menu for Unicode and Menksoft code choices',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 800);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Main copy label is present
+        expect(find.text('Хуулах'), findsOneWidget);
+        expect(find.text('⌘C'), findsOneWidget);
+
+        // Down arrow icon is present
+        final dropdownArrow = find.byIcon(Icons.arrow_drop_down);
+        expect(dropdownArrow, findsOneWidget);
+
+        // Tap dropdown arrow to open popup menu
+        await tester.tap(dropdownArrow);
+        await tester.pumpAndSettle();
+
+        // Choices are rendered
+        expect(find.text('Юникод (Unicode)'), findsOneWidget);
+        expect(find.text('Menksoft код'), findsOneWidget);
+
+        // Select Menksoft
+        await tester.tap(find.text('Menksoft код'));
+        await tester.pumpAndSettle();
+
+        // Re-open menu to confirm selection
+        await tester.tap(dropdownArrow);
+        await tester.pumpAndSettle();
+        expect(find.text('Menksoft код'), findsOneWidget);
+      },
+    );
   });
 }

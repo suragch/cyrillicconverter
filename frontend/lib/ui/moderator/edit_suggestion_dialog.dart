@@ -169,26 +169,40 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
     if (exists && note.isEmpty) {
       final proceed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Ялгах тэмдэглэл шаардлагатай'),
+        builder: (ctx) => DesktopDialogFrame(
+          title: 'Ялгах тэмдэглэл шаардлагатай',
+          maxWidth: 440,
+          leadingIcon: const Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: DesktopTheme.warning,
+          ),
           content: Text(
             '"$cyrillic" кирилл үг толь бичигт аль хэдийн бүртгэгдсэн байна. '
             'Энэ нь олон утгатай үг (homonym) болох тул ялгах тайлбар/тэмдэглэл бичих шаардлагатай.\n\n'
             'Тэмдэглэлгүйгээр үргэлжлүүлэх үү?',
+            style: DesktopTheme.body,
           ),
           actions: [
-            TextButton(
+            DesktopButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Тэмдэглэл бичих'),
+              label: 'Тэмдэглэл бичих',
+              variant: DesktopButtonVariant.secondary,
+              isDense: true,
             ),
-            ElevatedButton(
+            const SizedBox(width: 8),
+            DesktopButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Тэмдэглэлгүй үргэлжлүүлэх'),
+              label: 'Тэмдэглэлгүй үргэлжлүүлэх',
+              variant: DesktopButtonVariant.primary,
+              isDense: true,
             ),
           ],
         ),
       );
-      if (proceed != true) return;
+      if (proceed != true) {
+        return;
+      }
     }
 
     setState(() => _isSaving = true);

@@ -877,35 +877,90 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Widget _buildFrequencyFilterSelector() {
-    return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: DesktopTheme.secondarySurface,
-        borderRadius: DesktopTheme.roundedSmall,
-        border: Border.all(color: DesktopTheme.border, width: 1),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<int>(
-          value: _minFrequency,
-          isDense: true,
-          style: const TextStyle(
-            fontSize: 12,
-            color: DesktopTheme.textPrimary,
-            fontWeight: FontWeight.w500,
+    final label = switch (_minFrequency) {
+      1 => 'Бүгд (≥ 1)',
+      5 => 'Их давтамжтай (≥ 5)',
+      _ => 'Давтамж ≥ 2 (Зөвлөмжтэй)',
+    };
+
+    return MenuAnchor(
+      builder: (context, controller, child) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            child: Container(
+              height: 28,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: DesktopTheme.secondarySurface,
+                borderRadius: DesktopTheme.roundedSmall,
+                border: Border.all(color: DesktopTheme.border, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: DesktopTheme.textPrimary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.arrow_drop_down,
+                    size: 16,
+                    color: DesktopTheme.textSecondary,
+                  ),
+                ],
+              ),
+            ),
           ),
-          items: const [
-            DropdownMenuItem(value: 2, child: Text('Давтамж ≥ 2 (Зөвлөмжтэй)')),
-            DropdownMenuItem(value: 1, child: Text('Бүгд (≥ 1)')),
-            DropdownMenuItem(value: 5, child: Text('Их давтамжтай (≥ 5)')),
-          ],
-          onChanged: (val) {
-            if (val != null) {
-              _changeMinFrequency(val);
-            }
-          },
+        );
+      },
+      menuChildren: [
+        MenuItemButton(
+          leadingIcon: SizedBox(
+            width: 16,
+            height: 16,
+            child: _minFrequency == 2
+                ? const Icon(Icons.check, size: 16, color: DesktopTheme.primary)
+                : null,
+          ),
+          onPressed: () => _changeMinFrequency(2),
+          child: const Text('Давтамж ≥ 2 (Зөвлөмжтэй)'),
         ),
-      ),
+        MenuItemButton(
+          leadingIcon: SizedBox(
+            width: 16,
+            height: 16,
+            child: _minFrequency == 1
+                ? const Icon(Icons.check, size: 16, color: DesktopTheme.primary)
+                : null,
+          ),
+          onPressed: () => _changeMinFrequency(1),
+          child: const Text('Бүгд (≥ 1)'),
+        ),
+        MenuItemButton(
+          leadingIcon: SizedBox(
+            width: 16,
+            height: 16,
+            child: _minFrequency == 5
+                ? const Icon(Icons.check, size: 16, color: DesktopTheme.primary)
+                : null,
+          ),
+          onPressed: () => _changeMinFrequency(5),
+          child: const Text('Их давтамжтай (≥ 5)'),
+        ),
+      ],
     );
   }
 

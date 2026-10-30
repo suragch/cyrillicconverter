@@ -117,6 +117,42 @@ class DesktopTheme {
         thickness: 1,
         space: 1,
       ),
+      popupMenuTheme: const PopupMenuThemeData(
+        color: panelBackground,
+        elevation: 3,
+        shadowColor: Color(0x18000000),
+        shape: RoundedRectangleBorder(
+          borderRadius: roundedSmall,
+          side: BorderSide(color: borderMedium, width: 1),
+        ),
+        textStyle: TextStyle(fontSize: 12, color: textPrimary),
+      ),
+      menuTheme: const MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(panelBackground),
+          elevation: WidgetStatePropertyAll(3),
+          shadowColor: WidgetStatePropertyAll(Color(0x18000000)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: roundedSmall,
+              side: BorderSide(color: borderMedium, width: 1),
+            ),
+          ),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+        ),
+      ),
+      menuButtonTheme: MenuButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 28)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          ),
+          overlayColor: const WidgetStatePropertyAll(hoverBackground),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(fontSize: 12, color: textPrimary),
+          ),
+        ),
+      ),
     );
   }
 }

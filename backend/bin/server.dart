@@ -191,14 +191,45 @@ String _convertDelimiter(String text) {
 final _singleUppercaseCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]$');
 final _capitalizedCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]');
 
+/// Tracks recently logged unknown words per client to prevent frequency spam.
+/// Key format: "$clientKey:$normalizedCyrillic" -> Value: UTC timestamp of last DB log.
+final Map<String, DateTime> _recentUnknownWordLogs = {};
+const Duration _unknownWordDedupWindow = Duration(minutes: 30);
+
+bool _shouldLogUnknownWord(String clientKey, String normalizedCyrillic) {
+  final now = DateTime.now().toUtc();
+
+  // Prevent unbounded memory growth
+  if (_recentUnknownWordLogs.length > 10000) {
+    _recentUnknownWordLogs.removeWhere(
+      (_, timestamp) => now.difference(timestamp) > _unknownWordDedupWindow,
+    );
+  }
+
+  final cacheKey = '$clientKey:$normalizedCyrillic';
+  final lastLogged = _recentUnknownWordLogs[cacheKey];
+
+  if (lastLogged != null && now.difference(lastLogged) < _unknownWordDedupWindow) {
+    return false;
+  }
+
+  _recentUnknownWordLogs[cacheKey] = now;
+  return true;
+}
+
 Future<Response> _convertHandler(Request request) async {
   final content = await request.readAsString();
   try {
     final json = jsonDecode(content) as Map<String, dynamic>;
     final text = json['text'] as String? ?? '';
 
+    final clientKey = request.headers['x-session-id']?.trim().isNotEmpty == true
+        ? request.headers['x-session-id']!.trim()
+        : (request.headers['x-forwarded-for'] ?? 'anonymous');
+
     final rawTokens = Tokenizer.tokenize(text);
     final List<Map<String, dynamic>> resultTokens = [];
+    final Set<String> loggedInThisRequest = {};
 
     for (var i = 0; i < rawTokens.length; i++) {
       final token = rawTokens[i];
@@ -250,7 +281,13 @@ Future<Response> _convertHandler(Request request) async {
 
           // Only accept and log strictly Cyrillic text
           if (CyrillicValidator.isCyrillicWord(token.text)) {
-            _db.logUnknownWord(token.text, context: contextSnippet);
+            final normalized = token.text.trim().toLowerCase();
+            // 1. Ensure a word repeated multiple times in one text only counts once per request.
+            // 2. Ensure repeated clicks within 30 minutes from the same session don't increment frequency.
+            if (loggedInThisRequest.add(normalized) &&
+                _shouldLogUnknownWord(clientKey, normalized)) {
+              _db.logUnknownWord(token.text, context: contextSnippet);
+            }
           }
 
           resultTokens.add({

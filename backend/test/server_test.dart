@@ -316,22 +316,22 @@ void main() {
   });
 
   test('/admin/missing filters by min_frequency', () async {
-    // "давтамжтайүг" converted twice
+    // "давтамжтайүг" converted by two different client sessions
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-1'},
       body: jsonEncode({'text': 'давтамжтайүг'}),
     );
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-2'},
       body: jsonEncode({'text': 'давтамжтайүг'}),
     );
 
-    // "нэгдавтамжтай" converted once
+    // "ганцдавтамжтайүг" converted once
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-3'},
       body: jsonEncode({'text': 'ганцдавтамжтайүг'}),
     );
 
@@ -348,6 +348,28 @@ void main() {
     final list1 = (jsonDecode(res1.body)['missing'] as List).map((m) => m['cyrillic']).toList();
     expect(list1.contains('давтамжтайүг'), true);
     expect(list1.contains('ганцдавтамжтайүг'), true);
+  });
+
+  test('Unknown word deduplication per request and session window', () async {
+    // Repeated unknown word within the SAME document (3 times) only increments frequency by 1
+    final res = await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'dedup-test-session'},
+      body: jsonEncode({'text': 'давтагдсанүг давтагдсанүг давтагдсанүг'}),
+    );
+    expect(res.statusCode, 200);
+
+    // Repeated convert request from SAME session within 30-min window does NOT increment frequency
+    await post(
+      Uri.parse('$host/convert'),
+      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'dedup-test-session'},
+      body: jsonEncode({'text': 'давтагдсанүг'}),
+    );
+
+    final check = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
+    final missingList = (jsonDecode(check.body)['missing'] as List);
+    final item = missingList.firstWhere((m) => m['cyrillic'] == 'давтагдсанүг');
+    expect(item['frequency'], 1); // Only 1, not 4!
   });
 
   test('/contribute rejects non-Cyrillic words', () async {

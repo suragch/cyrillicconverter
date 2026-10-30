@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -42,6 +43,83 @@ class MyApp extends StatelessWidget {
 class ConverterScreen extends StatefulWidget {
   const ConverterScreen({super.key});
 
+  /// Reconciles user homonym selections across re-conversions.
+  /// Works for both identical text refreshes and edited texts (insertions/deletions).
+  static Map<int, int> reconcileHomonymSelections({
+    required List<Token> oldTokens,
+    required List<Token> newTokens,
+    required Map<int, int> oldSelections,
+  }) {
+    if (oldSelections.isEmpty || oldTokens.isEmpty || newTokens.isEmpty) {
+      return {};
+    }
+
+    String getCyrillic(Token token) {
+      return token.original.trim().toLowerCase();
+    }
+
+    // 1. Record the N-th occurrence of each Cyrillic word in oldTokens and what option value the user picked.
+    final Map<String, ({String selectedValue, int selectedIndex})> selectionByOccurrence = {};
+    final Map<String, int> oldWordCounts = {};
+
+    for (int i = 0; i < oldTokens.length; i++) {
+      final token = oldTokens[i];
+      if (token.type != 'word') continue;
+      final cyrillic = getCyrillic(token);
+      if (cyrillic.isEmpty) continue;
+
+      final occ = (oldWordCounts[cyrillic] ?? 0) + 1;
+      oldWordCounts[cyrillic] = occ;
+
+      if (oldSelections.containsKey(i)) {
+        final chosenIndex = oldSelections[i]!;
+        final options = token.options;
+        if (chosenIndex >= 0 && chosenIndex < options.length) {
+          selectionByOccurrence['$cyrillic#$occ'] = (
+            selectedValue: options[chosenIndex].menksoft,
+            selectedIndex: chosenIndex,
+          );
+        }
+      }
+    }
+
+    // 2. Walk through newTokens, count occurrences of each Cyrillic word, and restore selections.
+    final Map<int, int> reconciled = {};
+    final Map<String, int> newWordCounts = {};
+
+    for (int j = 0; j < newTokens.length; j++) {
+      final token = newTokens[j];
+      if (token.type != 'word') continue;
+      final cyrillic = getCyrillic(token);
+      if (cyrillic.isEmpty) continue;
+
+      final occ = (newWordCounts[cyrillic] ?? 0) + 1;
+      newWordCounts[cyrillic] = occ;
+
+      final saved = selectionByOccurrence['$cyrillic#$occ'];
+      if (saved != null) {
+        final newOptions = token.options;
+        if (newOptions.length > 1) {
+          int matchedIndex = -1;
+          for (int k = 0; k < newOptions.length; k++) {
+            if (newOptions[k].menksoft == saved.selectedValue) {
+              matchedIndex = k;
+              break;
+            }
+          }
+          if (matchedIndex == -1 && saved.selectedIndex < newOptions.length) {
+            matchedIndex = saved.selectedIndex;
+          }
+          if (matchedIndex >= 0) {
+            reconciled[j] = matchedIndex;
+          }
+        }
+      }
+    }
+
+    return reconciled;
+  }
+
   @override
   State<ConverterScreen> createState() => _ConverterScreenState();
 }
@@ -81,6 +159,27 @@ class _ConverterScreenState extends State<ConverterScreen> {
   final Map<int, int> _selectedOptionIndices = {}; // tokenIndex -> optionIndex
   final Map<String, String> _localOverrides = {}; // lowercase cyrillic -> menksoft code
 
+  // Unique session ID generated once per app launch for backend deduplication
+  late final String _sessionId = _generateSessionId();
+
+  // Stores the exact trimmed text of the last successful conversion
+  String? _lastConvertedText;
+
+  static String _generateSessionId() {
+    final random = Random();
+    final values = List<int>.generate(16, (_) => random.nextInt(256));
+    return values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// Returns true if the current input text differs from the last successfully converted text,
+  /// or if the last conversion resulted in an error.
+  bool get _isConversionDirty {
+    final currentText = _inputTextController.text.trim();
+    if (currentText.isEmpty) return false;
+    if (_errorMessage != null) return true;
+    return currentText != _lastConvertedText;
+  }
+
   bool _isLoading = false;
   String? _errorMessage;
   ExportEncoding _copyEncoding = ExportEncoding.unicode;
@@ -90,12 +189,17 @@ class _ConverterScreenState extends State<ConverterScreen> {
   @override
   void initState() {
     super.initState();
+    _inputTextController.addListener(_onInputTextChanged);
     _serverUrl = _defaultServerUrl;
     _outputController = MongolConverterController(
       tokenSpansProvider: () => _tokenSpanInfos,
     );
     _checkServerHealth();
     _restoreSession();
+  }
+
+  void _onInputTextChanged() {
+    setState(() {});
   }
 
   Future<void> _checkServerHealth() async {
@@ -230,6 +334,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   @override
   void dispose() {
+    _inputTextController.removeListener(_onInputTextChanged);
     _inputTextController.dispose();
     _outputController.dispose();
     super.dispose();
@@ -262,27 +367,35 @@ class _ConverterScreenState extends State<ConverterScreen> {
     );
   }
 
-  Future<void> _convert() async {
+  Future<void> _convert({bool force = false}) async {
     final text = _inputTextController.text.trim();
     if (text.isEmpty) return;
+
+    if (_isLoading) return;
+
+    // Guard: If text has not changed since last successful conversion and force is false, no-op.
+    if (!force && !_isConversionDirty) {
+      return;
+    }
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _tokens = [];
-      _tokenSpanInfos = [];
-      _selectedOptionIndices.clear();
+      // Do not clear _tokens, _tokenSpanInfos, or _selectedOptionIndices here!
     });
 
     try {
       final response = await http.post(
         Uri.parse('$_serverUrl/convert'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': _sessionId,
+        },
         body: jsonEncode({'text': text}),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
         final List<dynamic> tokenList = data['tokens'] ?? [];
         final parsed = tokenList.map((j) => Token.fromJson(j)).toList();
 
@@ -305,22 +418,32 @@ class _ConverterScreenState extends State<ConverterScreen> {
           }
         }
 
+        // Reconcile homonym selections between old _tokens and parsed newTokens
+        final reconciledSelections = ConverterScreen.reconcileHomonymSelections(
+          oldTokens: _tokens,
+          newTokens: parsed,
+          oldSelections: _selectedOptionIndices,
+        );
+
         setState(() {
           _tokens = parsed;
+          _selectedOptionIndices
+            ..clear()
+            ..addAll(reconciledSelections);
+          _lastConvertedText = text;
+          _isLoading = false;
           _syncOutputText();
         });
       } else {
         setState(() {
+          _isLoading = false;
           _errorMessage = 'Серверийн алдаа: ${response.statusCode}';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Сервертэй холбогдож чадсангүй: $e';
-      });
-    } finally {
-      setState(() {
         _isLoading = false;
+        _errorMessage = 'Сервертэй холбогдож чадсангүй: $e';
       });
     }
   }
@@ -500,6 +623,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
     } catch (e) {
       debugPrint('Background submission error: $e');
     }
+
+    // Force re-conversion to refresh tokens and database recognition
+    _convert(force: true);
   }
 
   void _showFixDialog(Token token) {
@@ -1074,6 +1200,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
                     setState(() {
                       _tokens = [];
                       _tokenSpanInfos = [];
+                      _lastConvertedText = null;
+                      _selectedOptionIndices.clear();
                     });
                   },
                 ),
@@ -1133,11 +1261,22 @@ class _ConverterScreenState extends State<ConverterScreen> {
             child: Row(
               children: [
                 DesktopButton(
-                  onPressed: _isLoading ? null : _convert,
-                  label: 'Хөрвүүлэх',
+                  onPressed: (_inputTextController.text.trim().isEmpty || _isLoading || !_isConversionDirty)
+                      ? null
+                      : () => _convert(),
+                  label: (!_isConversionDirty && _lastConvertedText != null)
+                      ? 'Хөрвүүлсэн'
+                      : 'Хөрвүүлэх',
                   shortcutHint: '⌘↵',
-                  icon: const Icon(Icons.translate, size: 14),
-                  variant: DesktopButtonVariant.primary,
+                  icon: Icon(
+                    (!_isConversionDirty && _lastConvertedText != null)
+                        ? Icons.check
+                        : Icons.translate,
+                    size: 14,
+                  ),
+                  variant: (!_isConversionDirty && _lastConvertedText != null)
+                      ? DesktopButtonVariant.secondary
+                      : DesktopButtonVariant.primary,
                   isLoading: _isLoading,
                 ),
                 const Spacer(),
@@ -1194,6 +1333,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (_tokens.isNotEmpty) ...[
+                  DesktopIconButton(
+                    icon: Icons.refresh,
+                    size: 15,
+                    tooltip: 'Дахин хөрвүүлэх (Толь бичгийн шинэчлэлийг татах)',
+                    onPressed: _isLoading ? null : () => _convert(force: true),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 DesktopButton(
                   onPressed: _tokens.isNotEmpty ? () => _copyToClipboard() : null,
                   label: 'Хуулах',
@@ -1240,9 +1388,23 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       ],
                     ),
                   )
-                : Container(
-                    padding: const EdgeInsets.all(16),
-                    child: _buildUnifiedOutput(),
+                : Stack(
+                    children: [
+                      Opacity(
+                        opacity: _isLoading ? 0.6 : 1.0,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          child: _buildUnifiedOutput(),
+                        ),
+                      ),
+                      if (_isLoading)
+                        const Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                    ],
                   ),
           ),
 

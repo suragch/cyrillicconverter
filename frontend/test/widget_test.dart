@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/main.dart';
 import 'package:frontend/services/latin_ime.dart';
+import 'package:frontend/token.dart';
+import 'package:frontend/ui/desktop/components/desktop_button.dart';
 import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,6 +67,120 @@ void main() {
       expect(LatinIme.normalizeCyrillic('УИХ-ын'), 'УИХ-ын');
       expect(LatinIme.normalizeCyrillic('Монгол'), 'монгол');
       expect(LatinIme.normalizeCyrillic('Ном'), 'ном');
+    });
+  });
+
+  group('Homonym Selection Reconciliation Tests', () {
+    test('Reconciles homonym selections when text is unchanged', () {
+      final oldTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      final newTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      final oldSelections = {0: 1}; // Selected option 1 (gol_reject)
+
+      final reconciled = ConverterScreen.reconcileHomonymSelections(
+        oldTokens: oldTokens,
+        newTokens: newTokens,
+        oldSelections: oldSelections,
+      );
+
+      expect(reconciled, {0: 1});
+    });
+
+    test('Preserves homonym selections when a word is inserted earlier in the text', () {
+      final oldTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      // User inserted "Энэ " at the start
+      final newTokens = [
+        Token(type: 'word', original: 'энэ', options: [TokenOption(menksoft: 'ene')]),
+        Token(type: 'space', original: ' '),
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      final oldSelections = {0: 1};
+
+      final reconciled = ConverterScreen.reconcileHomonymSelections(
+        oldTokens: oldTokens,
+        newTokens: newTokens,
+        oldSelections: oldSelections,
+      );
+
+      // Token index shifted from 0 to 2, but selection is still option 1
+      expect(reconciled, {2: 1});
+    });
+
+    test('Preserves homonym selections by menksoft value when option order changes', () {
+      final oldTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      // Dictionary returned options in different order
+      final newTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gol_reject'),
+          TokenOption(menksoft: 'gvl_river'),
+        ]),
+      ];
+      final oldSelections = {0: 1}; // User picked 'gol_reject'
+
+      final reconciled = ConverterScreen.reconcileHomonymSelections(
+        oldTokens: oldTokens,
+        newTokens: newTokens,
+        oldSelections: oldSelections,
+      );
+
+      // In newTokens, 'gol_reject' is now at index 0
+      expect(reconciled, {0: 0});
+    });
+
+    test('Disambiguates multiple occurrences of the same word independently', () {
+      final oldTokens = [
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+        Token(type: 'space', original: ' '),
+        Token(type: 'word', original: 'ба', options: [TokenOption(menksoft: 'ba')]),
+        Token(type: 'space', original: ' '),
+        Token(type: 'word', original: 'гол', options: [
+          TokenOption(menksoft: 'gvl_river'),
+          TokenOption(menksoft: 'gol_reject'),
+        ]),
+      ];
+      // User selected option 0 for 1st 'гол' and option 1 for 2nd 'гол'
+      final oldSelections = {0: 0, 4: 1};
+
+      // Add a word at the beginning
+      final newTokens = [
+        Token(type: 'word', original: 'том', options: [TokenOption(menksoft: 'tom')]),
+        Token(type: 'space', original: ' '),
+        ...oldTokens,
+      ];
+
+      final reconciled = ConverterScreen.reconcileHomonymSelections(
+        oldTokens: oldTokens,
+        newTokens: newTokens,
+        oldSelections: oldSelections,
+      );
+
+      // 1st 'гол' is now at index 2 (option 0), 2nd 'гол' is at index 6 (option 1)
+      expect(reconciled, {2: 0, 6: 1});
     });
   });
 
@@ -372,6 +488,35 @@ void main() {
       // Should automatically convert to Latin and trim outer whitespace
       final textFieldWidget = tester.widget<TextField>(latinField);
       expect(textFieldWidget.controller?.text, 'mqNgql');
+    });
+
+    testWidgets('Convert button state transitions: dirty vs up-to-date', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1280, 800);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+
+      final inputFinder = find.byType(TextField);
+      // Initially input is empty -> Convert button is disabled
+      final convertBtn = find.widgetWithText(DesktopButton, 'Хөрвүүлэх');
+      expect(convertBtn, findsOneWidget);
+      final initialButton = tester.widget<DesktopButton>(convertBtn);
+      expect(initialButton.onPressed, isNull);
+
+      // Enter text
+      await tester.enterText(inputFinder, 'сайн байна уу');
+      await tester.pumpAndSettle();
+
+      // Now dirty -> Convert button is enabled with label 'Хөрвүүлэх'
+      final enabledButton = tester.widget<DesktopButton>(convertBtn);
+      expect(enabledButton.onPressed, isNotNull);
+      expect(enabledButton.label, 'Хөрвүүлэх');
     });
   });
 }

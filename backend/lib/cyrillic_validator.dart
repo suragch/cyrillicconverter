@@ -6,7 +6,9 @@ class CyrillicValidator {
   );
 
   static final RegExp _standaloneAbbreviationRegex = RegExp(r'^[А-ЯЁӨҮ]{2,}$');
-  static final RegExp _suffixedAbbreviationRegex = RegExp(r'^[А-ЯЁӨҮ]{2,}-[а-яёөүА-ЯЁӨҮ]+$');
+  static final RegExp _suffixedAbbreviationRegex = RegExp(
+    r'^[А-ЯЁӨҮ]{2,}-[а-яёөүА-ЯЁӨҮ]+$',
+  );
 
   /// Returns true if [text] is composed strictly of Cyrillic characters.
   /// Allows single letters (e.g. 'в', 'г', 'а') and consonant strings (e.g. 'УИХ', 'ХХК').

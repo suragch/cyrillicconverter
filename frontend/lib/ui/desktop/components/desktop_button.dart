@@ -1,13 +1,7 @@
 import 'package:flutter/material.dart';
 import '../desktop_theme.dart';
 
-enum DesktopButtonVariant {
-  primary,
-  secondary,
-  subtle,
-  danger,
-  success,
-}
+enum DesktopButtonVariant { primary, secondary, subtle, danger, success }
 
 class DesktopButton extends StatefulWidget {
   final VoidCallback? onPressed;
@@ -59,7 +53,9 @@ class _DesktopButtonState extends State<DesktopButton> {
       case DesktopButtonVariant.secondary:
         bg = _isPressed
             ? DesktopTheme.activeBackground
-            : (_isHovered ? DesktopTheme.hoverBackground : DesktopTheme.panelBackground);
+            : (_isHovered
+                  ? DesktopTheme.hoverBackground
+                  : DesktopTheme.panelBackground);
         fg = DesktopTheme.textPrimary;
         border = Border.all(color: DesktopTheme.borderMedium, width: 1);
         break;
@@ -75,7 +71,9 @@ class _DesktopButtonState extends State<DesktopButton> {
       case DesktopButtonVariant.danger:
         bg = _isPressed
             ? DesktopTheme.danger.withValues(alpha: 0.15)
-            : (_isHovered ? DesktopTheme.dangerSurface : DesktopTheme.panelBackground);
+            : (_isHovered
+                  ? DesktopTheme.dangerSurface
+                  : DesktopTheme.panelBackground);
         fg = DesktopTheme.danger;
         border = Border.all(color: DesktopTheme.dangerBorder, width: 1);
         break;
@@ -83,7 +81,9 @@ class _DesktopButtonState extends State<DesktopButton> {
       case DesktopButtonVariant.success:
         bg = _isPressed
             ? DesktopTheme.success.withValues(alpha: 0.15)
-            : (_isHovered ? DesktopTheme.successSurface : DesktopTheme.panelBackground);
+            : (_isHovered
+                  ? DesktopTheme.successSurface
+                  : DesktopTheme.panelBackground);
         fg = DesktopTheme.success;
         border = Border.all(color: DesktopTheme.successBorder, width: 1);
         break;
@@ -97,7 +97,10 @@ class _DesktopButtonState extends State<DesktopButton> {
       bg = bg.withValues(alpha: 0.5);
       fg = fg.withValues(alpha: 0.5);
       if (border != null) {
-        border = Border.all(color: DesktopTheme.border.withValues(alpha: 0.5), width: 1);
+        border = Border.all(
+          color: DesktopTheme.border.withValues(alpha: 0.5),
+          width: 1,
+        );
       }
     }
 
@@ -126,7 +129,8 @@ class _DesktopButtonState extends State<DesktopButton> {
             color: bg,
             borderRadius: DesktopTheme.roundedSmall,
             border: border,
-            boxShadow: widget.variant == DesktopButtonVariant.primary && isEnabled
+            boxShadow:
+                widget.variant == DesktopButtonVariant.primary && isEnabled
                 ? DesktopTheme.subtleShadow
                 : null,
           ),
@@ -150,7 +154,10 @@ class _DesktopButtonState extends State<DesktopButton> {
                 Padding(
                   padding: const EdgeInsets.only(right: 6.0),
                   child: IconTheme(
-                    data: IconThemeData(size: widget.isDense ? 14 : 16, color: fg),
+                    data: IconThemeData(
+                      size: widget.isDense ? 14 : 16,
+                      color: fg,
+                    ),
                     child: widget.icon!,
                   ),
                 ),
@@ -168,7 +175,10 @@ class _DesktopButtonState extends State<DesktopButton> {
               if (widget.shortcutHint != null) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: widget.variant == DesktopButtonVariant.primary
                         ? Colors.white.withValues(alpha: 0.2)
@@ -239,13 +249,19 @@ class _DesktopIconButtonState extends State<DesktopIconButton> {
           duration: const Duration(milliseconds: 100),
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: _isHovered && isEnabled ? DesktopTheme.hoverBackground : Colors.transparent,
+            color: _isHovered && isEnabled
+                ? DesktopTheme.hoverBackground
+                : Colors.transparent,
             borderRadius: DesktopTheme.roundedSmall,
           ),
           child: Icon(
             widget.icon,
             size: widget.size,
-            color: widget.color ?? (isEnabled ? DesktopTheme.textSecondary : DesktopTheme.textMuted),
+            color:
+                widget.color ??
+                (isEnabled
+                    ? DesktopTheme.textSecondary
+                    : DesktopTheme.textMuted),
           ),
         ),
       ),

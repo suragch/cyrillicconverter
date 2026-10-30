@@ -48,7 +48,10 @@ void main() {
       },
     );
     // Listen for startup output
-    final line = await p.stdout.transform(utf8.decoder).transform(const LineSplitter()).first;
+    final line = await p.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .first;
     print('Server started: $line');
   });
 
@@ -180,7 +183,10 @@ void main() {
     final checkAbbr = await get(Uri.parse('$host/words/check?cyrillic=МУИС'));
     expect(checkAbbr.statusCode, 200);
     final abbrData = jsonDecode(checkAbbr.body);
-    expect(abbrData['cyrillic'], 'МУИС'); // Preserves uppercase for abbreviation
+    expect(
+      abbrData['cyrillic'],
+      'МУИС',
+    ); // Preserves uppercase for abbreviation
 
     // 3. Check /words/check endpoint for capitalized regular word
     final checkWord = await get(Uri.parse('$host/words/check?cyrillic=Бөртэ'));
@@ -228,7 +234,9 @@ void main() {
     expect(jsonKnown['exists'], true);
     expect((jsonKnown['definitions'] as List).isNotEmpty, true);
 
-    final resUnknown = await get(Uri.parse('$host/words/check?cyrillic=үл_байгаа_үг'));
+    final resUnknown = await get(
+      Uri.parse('$host/words/check?cyrillic=үл_байгаа_үг'),
+    );
     expect(resUnknown.statusCode, 200);
     final jsonUnknown = jsonDecode(resUnknown.body);
     expect(jsonUnknown['exists'], false);
@@ -238,7 +246,9 @@ void main() {
 
   test('Admin endpoints require moderator authorization', () async {
     // Calling /admin/* without token must return 403 Forbidden
-    final resWords = await get(Uri.parse('$host/admin/words/check?cyrillic=сайн'));
+    final resWords = await get(
+      Uri.parse('$host/admin/words/check?cyrillic=сайн'),
+    );
     expect(resWords.statusCode, 403);
 
     final resMissing = await get(Uri.parse('$host/admin/missing'));
@@ -254,98 +264,148 @@ void main() {
     expect(resExportJson.statusCode, 403);
   });
 
-  test('Moderator can download full database (.db snapshot and JSON dump)', () async {
-    // 1. Download SQLite binary snapshot
-    final resDb = await get(Uri.parse('$host/admin/db/download'), headers: modHeaders);
-    expect(resDb.statusCode, 200);
-    expect(resDb.headers['content-type'], contains('application/vnd.sqlite3'));
-    expect(resDb.headers['content-disposition'], contains('attachment; filename='));
-    expect(resDb.bodyBytes.length > 100, true);
-    // SQLite header magic string check
-    final headerStr = utf8.decode(resDb.bodyBytes.sublist(0, 16));
-    expect(headerStr.startsWith('SQLite format 3'), true);
+  test(
+    'Moderator can download full database (.db snapshot and JSON dump)',
+    () async {
+      // 1. Download SQLite binary snapshot
+      final resDb = await get(
+        Uri.parse('$host/admin/db/download'),
+        headers: modHeaders,
+      );
+      expect(resDb.statusCode, 200);
+      expect(
+        resDb.headers['content-type'],
+        contains('application/vnd.sqlite3'),
+      );
+      expect(
+        resDb.headers['content-disposition'],
+        contains('attachment; filename='),
+      );
+      expect(resDb.bodyBytes.length > 100, true);
+      // SQLite header magic string check
+      final headerStr = utf8.decode(resDb.bodyBytes.sublist(0, 16));
+      expect(headerStr.startsWith('SQLite format 3'), true);
 
-    // 2. Download full JSON dump
-    final resJson = await get(Uri.parse('$host/admin/db/export-json'), headers: modHeaders);
-    expect(resJson.statusCode, 200);
-    final dump = jsonDecode(resJson.body) as Map<String, dynamic>;
-    expect(dump.containsKey('words'), true);
-    expect(dump.containsKey('definitions'), true);
-    expect(dump.containsKey('unknown_logs'), true);
-    expect(dump.containsKey('suggestions'), true);
-    expect(dump.containsKey('rejected_words'), true);
-  });
+      // 2. Download full JSON dump
+      final resJson = await get(
+        Uri.parse('$host/admin/db/export-json'),
+        headers: modHeaders,
+      );
+      expect(resJson.statusCode, 200);
+      final dump = jsonDecode(resJson.body) as Map<String, dynamic>;
+      expect(dump.containsKey('words'), true);
+      expect(dump.containsKey('definitions'), true);
+      expect(dump.containsKey('unknown_logs'), true);
+      expect(dump.containsKey('suggestions'), true);
+      expect(dump.containsKey('rejected_words'), true);
+    },
+  );
 
-  test('Non-Cyrillic words in /convert are not logged to unknown_logs', () async {
-    final response = await post(
-      Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'text': 'Hello world 12345'}),
-    );
-    expect(response.statusCode, 200);
+  test(
+    'Non-Cyrillic words in /convert are not logged to unknown_logs',
+    () async {
+      final response = await post(
+        Uri.parse('$host/convert'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text': 'Hello world 12345'}),
+      );
+      expect(response.statusCode, 200);
 
-    // Verify neither "Hello" nor "world" nor "12345" are in /admin/missing
-    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
-    expect(missingRes.statusCode, 200);
-    final missingJson = jsonDecode(missingRes.body);
-    final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
-    expect(list.contains('hello'), false);
-    expect(list.contains('world'), false);
-    expect(list.contains('12345'), false);
-  });
+      // Verify neither "Hello" nor "world" nor "12345" are in /admin/missing
+      final missingRes = await get(
+        Uri.parse('$host/admin/missing?min_frequency=1'),
+        headers: modHeaders,
+      );
+      expect(missingRes.statusCode, 200);
+      final missingJson = jsonDecode(missingRes.body);
+      final list = (missingJson['missing'] as List)
+          .map((m) => m['cyrillic'])
+          .toList();
+      expect(list.contains('hello'), false);
+      expect(list.contains('world'), false);
+      expect(list.contains('12345'), false);
+    },
+  );
 
-  test('All unknown Cyrillic words in a large text are logged without limits', () async {
-    // Submit 5 distinct unknown words in one conversion text
-    final text = 'үгнэг үгхоёр үггурав үгдөрөв үгтав';
-    final response = await post(
-      Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'text': text}),
-    );
-    expect(response.statusCode, 200);
+  test(
+    'All unknown Cyrillic words in a large text are logged without limits',
+    () async {
+      // Submit 5 distinct unknown words in one conversion text
+      final text = 'үгнэг үгхоёр үггурав үгдөрөв үгтав';
+      final response = await post(
+        Uri.parse('$host/convert'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text': text}),
+      );
+      expect(response.statusCode, 200);
 
-    final missingRes = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
-    final missingJson = jsonDecode(missingRes.body);
-    final list = (missingJson['missing'] as List).map((m) => m['cyrillic']).toList();
+      final missingRes = await get(
+        Uri.parse('$host/admin/missing?min_frequency=1'),
+        headers: modHeaders,
+      );
+      final missingJson = jsonDecode(missingRes.body);
+      final list = (missingJson['missing'] as List)
+          .map((m) => m['cyrillic'])
+          .toList();
 
-    expect(list.contains('үгнэг'), true);
-    expect(list.contains('үгхоёр'), true);
-    expect(list.contains('үггурав'), true);
-    expect(list.contains('үгдөрөв'), true);
-    expect(list.contains('үгтав'), true);
-  });
+      expect(list.contains('үгнэг'), true);
+      expect(list.contains('үгхоёр'), true);
+      expect(list.contains('үггурав'), true);
+      expect(list.contains('үгдөрөв'), true);
+      expect(list.contains('үгтав'), true);
+    },
+  );
 
   test('/admin/missing filters by min_frequency', () async {
     // "давтамжтайүг" converted by two different client sessions
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-1'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': 'client-session-1',
+      },
       body: jsonEncode({'text': 'давтамжтайүг'}),
     );
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-2'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': 'client-session-2',
+      },
       body: jsonEncode({'text': 'давтамжтайүг'}),
     );
 
     // "ганцдавтамжтайүг" converted once
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'client-session-3'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': 'client-session-3',
+      },
       body: jsonEncode({'text': 'ганцдавтамжтайүг'}),
     );
 
     // Query with min_frequency=2
-    final res2 = await get(Uri.parse('$host/admin/missing?min_frequency=2'), headers: modHeaders);
+    final res2 = await get(
+      Uri.parse('$host/admin/missing?min_frequency=2'),
+      headers: modHeaders,
+    );
     expect(res2.statusCode, 200);
-    final list2 = (jsonDecode(res2.body)['missing'] as List).map((m) => m['cyrillic']).toList();
+    final list2 = (jsonDecode(res2.body)['missing'] as List)
+        .map((m) => m['cyrillic'])
+        .toList();
     expect(list2.contains('давтамжтайүг'), true);
     expect(list2.contains('ганцдавтамжтайүг'), false);
 
     // Query with min_frequency=1 includes both
-    final res1 = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
+    final res1 = await get(
+      Uri.parse('$host/admin/missing?min_frequency=1'),
+      headers: modHeaders,
+    );
     expect(res1.statusCode, 200);
-    final list1 = (jsonDecode(res1.body)['missing'] as List).map((m) => m['cyrillic']).toList();
+    final list1 = (jsonDecode(res1.body)['missing'] as List)
+        .map((m) => m['cyrillic'])
+        .toList();
     expect(list1.contains('давтамжтайүг'), true);
     expect(list1.contains('ганцдавтамжтайүг'), true);
   });
@@ -354,7 +414,10 @@ void main() {
     // Repeated unknown word within the SAME document (3 times) only increments frequency by 1
     final res = await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'dedup-test-session'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': 'dedup-test-session',
+      },
       body: jsonEncode({'text': 'давтагдсанүг давтагдсанүг давтагдсанүг'}),
     );
     expect(res.statusCode, 200);
@@ -362,11 +425,17 @@ void main() {
     // Repeated convert request from SAME session within 30-min window does NOT increment frequency
     await post(
       Uri.parse('$host/convert'),
-      headers: {'Content-Type': 'application/json', 'X-Session-ID': 'dedup-test-session'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': 'dedup-test-session',
+      },
       body: jsonEncode({'text': 'давтагдсанүг'}),
     );
 
-    final check = await get(Uri.parse('$host/admin/missing?min_frequency=1'), headers: modHeaders);
+    final check = await get(
+      Uri.parse('$host/admin/missing?min_frequency=1'),
+      headers: modHeaders,
+    );
     final missingList = (jsonDecode(check.body)['missing'] as List);
     final item = missingList.firstWhere((m) => m['cyrillic'] == 'давтагдсанүг');
     expect(item['frequency'], 1); // Only 1, not 4!

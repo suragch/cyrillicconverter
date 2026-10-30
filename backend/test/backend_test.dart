@@ -21,13 +21,19 @@ void main() {
       expect(CyrillicValidator.isAbbreviation(''), false);
     });
 
-    test('Normalizes regular words to lowercase and preserves abbreviation casing', () {
-      expect(CyrillicValidator.normalizeWord('МУИС'), 'МУИС');
-      expect(CyrillicValidator.normalizeWord('УИХ-ын'), 'УИХ-ын');
-      expect(CyrillicValidator.normalizeWord('Монгол'), 'монгол');
-      expect(CyrillicValidator.normalizeWord('НОМ'), 'НОМ'); // 3-letter all-caps is treated as abbreviation unless fallback
-      expect(CyrillicValidator.normalizeWord('Ном'), 'ном');
-    });
+    test(
+      'Normalizes regular words to lowercase and preserves abbreviation casing',
+      () {
+        expect(CyrillicValidator.normalizeWord('МУИС'), 'МУИС');
+        expect(CyrillicValidator.normalizeWord('УИХ-ын'), 'УИХ-ын');
+        expect(CyrillicValidator.normalizeWord('Монгол'), 'монгол');
+        expect(
+          CyrillicValidator.normalizeWord('НОМ'),
+          'НОМ',
+        ); // 3-letter all-caps is treated as abbreviation unless fallback
+        expect(CyrillicValidator.normalizeWord('Ном'), 'ном');
+      },
+    );
   });
   group('Tokenizer Tests', () {
     test('Tokenizes Cyrillic words, whitespace, and punctuation cleanly', () {
@@ -36,11 +42,20 @@ void main() {
 
       expect(tokens.isNotEmpty, true);
       // Word tokens
-      final words = tokens.where((t) => t.type == TokenType.word).map((t) => t.text).toList();
-      expect(words, containsAll(['Сайн', 'байна', 'уу', 'Монгол', 'улс', 'онд']));
+      final words = tokens
+          .where((t) => t.type == TokenType.word)
+          .map((t) => t.text)
+          .toList();
+      expect(
+        words,
+        containsAll(['Сайн', 'байна', 'уу', 'Монгол', 'улс', 'онд']),
+      );
 
       // Punctuation delimiters
-      final delimiters = tokens.where((t) => t.type == TokenType.delimiter).map((t) => t.text).toList();
+      final delimiters = tokens
+          .where((t) => t.type == TokenType.delimiter)
+          .map((t) => t.text)
+          .toList();
       expect(delimiters, containsAll(['?', '"', ',', '2026', '.']));
 
       // Reconstructed text must match input exactly
@@ -181,16 +196,22 @@ void main() {
       expect(fallbackOptions.first['menksoft'], 'menk_attention');
     });
 
-    test('Unknown abbreviation logs in uppercase and normal words in lowercase', () {
-      appDb.logUnknownWord('МУИС', context: 'МУИС-ийн оюутнууд');
-      appDb.logUnknownWord('УИХ-ын', context: 'УИХ-ын гишүүд');
-      appDb.logUnknownWord('Нохой', context: 'Нохой хуцав'); // TitleCase start of sentence
+    test(
+      'Unknown abbreviation logs in uppercase and normal words in lowercase',
+      () {
+        appDb.logUnknownWord('МУИС', context: 'МУИС-ийн оюутнууд');
+        appDb.logUnknownWord('УИХ-ын', context: 'УИХ-ын гишүүд');
+        appDb.logUnknownWord(
+          'Нохой',
+          context: 'Нохой хуцав',
+        ); // TitleCase start of sentence
 
-      final top = appDb.getTopUnknownWords();
-      final words = top.map((w) => w['cyrillic']).toList();
+        final top = appDb.getTopUnknownWords();
+        final words = top.map((w) => w['cyrillic']).toList();
 
-      expect(words, containsAll(['МУИС', 'УИХ-ын', 'нохой']));
-      expect(words, isNot(contains('Нохой')));
-    });
+        expect(words, containsAll(['МУИС', 'УИХ-ын', 'нохой']));
+        expect(words, isNot(contains('Нохой')));
+      },
+    );
   });
 }

@@ -1,8 +1,4 @@
-enum TokenType {
-  word,
-  space,
-  delimiter,
-}
+enum TokenType { word, space, delimiter }
 
 class RawToken {
   final TokenType type;

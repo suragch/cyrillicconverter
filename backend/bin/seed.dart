@@ -36,7 +36,8 @@ void main(List<String> args) async {
 
   try {
     if (args.contains('--from-old-app')) {
-      String url = Platform.environment['OLD_APP_URL'] ??
+      String url =
+          Platform.environment['OLD_APP_URL'] ??
           'https://cyrillic.suragch.dev/api/collections/words/records';
       final urlIdx = args.indexOf('--url');
       if (urlIdx != -1 && urlIdx + 1 < args.length) {
@@ -82,7 +83,10 @@ void main(List<String> args) async {
           final menk = (item['menksoft'] as String?)?.trim();
           final exp = item['explanation'] as String?;
           final isPrim = item['isPrimary'] as bool? ?? true;
-          if (cyr != null && cyr.isNotEmpty && menk != null && menk.isNotEmpty) {
+          if (cyr != null &&
+              cyr.isNotEmpty &&
+              menk != null &&
+              menk.isNotEmpty) {
             appDb.addWordDefinition(
               cyrillic: cyr,
               menksoft: menk,
@@ -99,24 +103,28 @@ void main(List<String> args) async {
         // Full database dump
         final words = data['words'] as List? ?? [];
         final defs = data['definitions'] as List? ?? [];
-        print('Importing full database dump (${words.length} words, ${defs.length} definitions)...');
+        print(
+          'Importing full database dump (${words.length} words, ${defs.length} definitions)...',
+        );
         appDb.db.execute('BEGIN TRANSACTION;');
         for (final w in words) {
-          appDb.db.execute('INSERT OR IGNORE INTO words (id, cyrillic, is_abbreviation) VALUES (?, ?, ?);', [
-            w['id'],
-            w['cyrillic'],
-            w['is_abbreviation'] ?? 0,
-          ]);
+          appDb.db.execute(
+            'INSERT OR IGNORE INTO words (id, cyrillic, is_abbreviation) VALUES (?, ?, ?);',
+            [w['id'], w['cyrillic'], w['is_abbreviation'] ?? 0],
+          );
         }
         for (final d in defs) {
-          appDb.db.execute('INSERT OR IGNORE INTO definitions (id, word_id, menksoft_code, explanation, is_primary, verified_by) VALUES (?, ?, ?, ?, ?, ?);', [
-            d['id'],
-            d['word_id'],
-            d['menksoft_code'],
-            d['explanation'],
-            d['is_primary'] ?? 0,
-            d['verified_by'],
-          ]);
+          appDb.db.execute(
+            'INSERT OR IGNORE INTO definitions (id, word_id, menksoft_code, explanation, is_primary, verified_by) VALUES (?, ?, ?, ?, ?, ?);',
+            [
+              d['id'],
+              d['word_id'],
+              d['menksoft_code'],
+              d['explanation'],
+              d['is_primary'] ?? 0,
+              d['verified_by'],
+            ],
+          );
         }
         appDb.db.execute('COMMIT;');
         print('Full database dump imported successfully.');

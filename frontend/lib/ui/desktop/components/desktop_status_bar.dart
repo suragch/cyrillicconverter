@@ -28,9 +28,7 @@ class DesktopStatusBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         color: DesktopTheme.panelBackground,
-        border: Border(
-          top: BorderSide(color: DesktopTheme.border, width: 1),
-        ),
+        border: Border(top: BorderSide(color: DesktopTheme.border, width: 1)),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -53,7 +51,9 @@ class DesktopStatusBar extends StatelessWidget {
                         height: 7,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isLoading ? DesktopTheme.warning : DesktopTheme.success,
+                          color: isLoading
+                              ? DesktopTheme.warning
+                              : DesktopTheme.success,
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -77,7 +77,8 @@ class DesktopStatusBar extends StatelessWidget {
                           fontFamily: null,
                         ),
                       ),
-                      if (!isCompact && (homonymCount > 0 || unknownCount > 0)) ...[
+                      if (!isCompact &&
+                          (homonymCount > 0 || unknownCount > 0)) ...[
                         const SizedBox(width: 10),
                         _buildDivider(),
                         const SizedBox(width: 10),
@@ -148,10 +149,6 @@ class DesktopStatusBar extends StatelessWidget {
   }
 
   Widget _buildDivider() {
-    return Container(
-      width: 1,
-      height: 14,
-      color: DesktopTheme.border,
-    );
+    return Container(width: 1, height: 14, color: DesktopTheme.border);
   }
 }

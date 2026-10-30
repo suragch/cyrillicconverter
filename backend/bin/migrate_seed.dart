@@ -47,7 +47,10 @@ void main() async {
         final cyrillic = (item['cyrillic'] as String?)?.trim();
         final mongol = (item['mongol'] as String?)?.trim();
 
-        if (cyrillic == null || cyrillic.isEmpty || mongol == null || mongol.isEmpty) {
+        if (cyrillic == null ||
+            cyrillic.isEmpty ||
+            mongol == null ||
+            mongol.isEmpty) {
           totalSkipped++;
           continue;
         }
@@ -55,10 +58,15 @@ void main() async {
         final normalized = cyrillic.toLowerCase();
 
         // 1. Insert word
-        db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [normalized]);
+        db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [
+          normalized,
+        ]);
 
         // 2. Get word id
-        final row = db.select('SELECT id FROM words WHERE cyrillic = ? LIMIT 1;', [normalized]);
+        final row = db.select(
+          'SELECT id FROM words WHERE cyrillic = ? LIMIT 1;',
+          [normalized],
+        );
         if (row.isEmpty) {
           totalSkipped++;
           continue;
@@ -73,14 +81,20 @@ void main() async {
 
         if (existingDef.isEmpty) {
           // Check if there are already definitions for this word
-          final countRow = db.select('SELECT count(*) as count FROM definitions WHERE word_id = ?;', [wordId]);
+          final countRow = db.select(
+            'SELECT count(*) as count FROM definitions WHERE word_id = ?;',
+            [wordId],
+          );
           final existingCount = countRow.first['count'] as int;
           final isPrimary = existingCount == 0 ? 1 : 0;
 
-          db.execute('''
+          db.execute(
+            '''
             INSERT INTO definitions (word_id, menksoft_code, is_primary, verified_by)
             VALUES (?, ?, ?, 'migrated');
-          ''', [wordId, mongol, isPrimary]);
+          ''',
+            [wordId, mongol, isPrimary],
+          );
           totalImported++;
         }
       }
@@ -91,7 +105,9 @@ void main() async {
       rethrow;
     }
 
-    print('Imported ${items.length} items (Total: $totalImported / $totalItems)');
+    print(
+      'Imported ${items.length} items (Total: $totalImported / $totalItems)',
+    );
 
     if (page >= totalPages) {
       break;
@@ -105,8 +121,12 @@ void main() async {
   print('Total definitions imported: $totalImported');
   print('Total skipped/empty: $totalSkipped');
 
-  final wordCount = db.select('SELECT count(*) as cnt FROM words;').first['cnt'];
-  final defCount = db.select('SELECT count(*) as cnt FROM definitions;').first['cnt'];
+  final wordCount = db
+      .select('SELECT count(*) as cnt FROM words;')
+      .first['cnt'];
+  final defCount = db
+      .select('SELECT count(*) as cnt FROM definitions;')
+      .first['cnt'];
   print('Total unique words in DB: $wordCount');
   print('Total definitions in DB: $defCount');
 

@@ -2,16 +2,9 @@ import 'package:flutter/material.dart';
 import '../desktop_theme.dart';
 import 'desktop_button.dart';
 
-enum DesktopNavTab {
-  converter,
-  moderator,
-  dictionary,
-}
+enum DesktopNavTab { converter, moderator, dictionary }
 
-enum HeaderExportEncoding {
-  unicode,
-  menksoft,
-}
+enum HeaderExportEncoding { unicode, menksoft }
 
 class DesktopHeader extends StatelessWidget {
   final DesktopNavTab activeTab;
@@ -125,7 +118,10 @@ class DesktopHeader extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: DesktopTheme.secondarySurface,
                           borderRadius: DesktopTheme.roundedSmall,
-                          border: Border.all(color: DesktopTheme.border, width: 1),
+                          border: Border.all(
+                            color: DesktopTheme.border,
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -136,7 +132,9 @@ class DesktopHeader extends StatelessWidget {
                               onTap: onZoomOut,
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
                               child: Text(
                                 '${fontSize.toInt()}pt',
                                 style: const TextStyle(
@@ -164,7 +162,10 @@ class DesktopHeader extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: DesktopTheme.secondarySurface,
                           borderRadius: DesktopTheme.roundedSmall,
-                          border: Border.all(color: DesktopTheme.border, width: 1),
+                          border: Border.all(
+                            color: DesktopTheme.border,
+                            width: 1,
+                          ),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<HeaderExportEncoding>(
@@ -223,11 +224,17 @@ class DesktopHeader extends StatelessWidget {
                         )
                       else if (isLoggedIn) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: DesktopTheme.secondarySurface,
                             borderRadius: DesktopTheme.roundedSmall,
-                            border: Border.all(color: DesktopTheme.border, width: 1),
+                            border: Border.all(
+                              color: DesktopTheme.border,
+                              width: 1,
+                            ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -241,7 +248,9 @@ class DesktopHeader extends StatelessWidget {
                                 ),
                                 alignment: Alignment.center,
                                 child: Text(
-                                  (currentUser?['email'] as String? ?? 'U').substring(0, 1).toUpperCase(),
+                                  (currentUser?['email'] as String? ?? 'U')
+                                      .substring(0, 1)
+                                      .toUpperCase(),
                                   style: const TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
@@ -252,7 +261,8 @@ class DesktopHeader extends StatelessWidget {
                               if (!isCompact) ...[
                                 const SizedBox(width: 6),
                                 Text(
-                                  currentUser?['email'] as String? ?? 'Хэрэглэгч',
+                                  currentUser?['email'] as String? ??
+                                      'Хэрэглэгч',
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w500,
@@ -304,7 +314,9 @@ class DesktopHeader extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
-            color: isActive ? DesktopTheme.secondarySurface : Colors.transparent,
+            color: isActive
+                ? DesktopTheme.secondarySurface
+                : Colors.transparent,
             borderRadius: DesktopTheme.roundedSmall,
             border: Border.all(
               color: isActive ? DesktopTheme.borderMedium : Colors.transparent,
@@ -317,7 +329,9 @@ class DesktopHeader extends StatelessWidget {
               Icon(
                 icon,
                 size: 14,
-                color: isActive ? DesktopTheme.primary : DesktopTheme.textSecondary,
+                color: isActive
+                    ? DesktopTheme.primary
+                    : DesktopTheme.textSecondary,
               ),
               const SizedBox(width: 5),
               Text(
@@ -325,15 +339,22 @@ class DesktopHeader extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                  color: isActive ? DesktopTheme.textPrimary : DesktopTheme.textSecondary,
+                  color: isActive
+                      ? DesktopTheme.textPrimary
+                      : DesktopTheme.textSecondary,
                 ),
               ),
               if (badgeCount > 0) ...[
                 const SizedBox(width: 5),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
-                    color: isActive ? DesktopTheme.primary : DesktopTheme.borderMedium,
+                    color: isActive
+                        ? DesktopTheme.primary
+                        : DesktopTheme.borderMedium,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
@@ -354,11 +375,7 @@ class DesktopHeader extends StatelessWidget {
   }
 
   Widget _buildVerticalDivider() {
-    return Container(
-      width: 1,
-      height: 18,
-      color: DesktopTheme.border,
-    );
+    return Container(width: 1, height: 18, color: DesktopTheme.border);
   }
 
   Widget _buildHeaderIconBtn({
@@ -374,9 +391,7 @@ class DesktopHeader extends StatelessWidget {
           onTap: onTap,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(2),
-            ),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(2)),
             child: Text(
               text,
               style: const TextStyle(

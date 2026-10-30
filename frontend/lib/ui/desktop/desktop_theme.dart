@@ -46,30 +46,24 @@ class DesktopTheme {
   static const double radiusMedium = 6.0;
   static const double radiusLarge = 8.0;
 
-  static const BorderRadius roundedSmall = BorderRadius.all(Radius.circular(radiusSmall));
-  static const BorderRadius roundedMedium = BorderRadius.all(Radius.circular(radiusMedium));
-  static const BorderRadius roundedLarge = BorderRadius.all(Radius.circular(radiusLarge));
+  static const BorderRadius roundedSmall = BorderRadius.all(
+    Radius.circular(radiusSmall),
+  );
+  static const BorderRadius roundedMedium = BorderRadius.all(
+    Radius.circular(radiusMedium),
+  );
+  static const BorderRadius roundedLarge = BorderRadius.all(
+    Radius.circular(radiusLarge),
+  );
 
   // --- Shadows ---
   static const List<BoxShadow> subtleShadow = [
-    BoxShadow(
-      color: Color(0x08000000),
-      blurRadius: 3,
-      offset: Offset(0, 1),
-    ),
+    BoxShadow(color: Color(0x08000000), blurRadius: 3, offset: Offset(0, 1)),
   ];
 
   static const List<BoxShadow> dialogShadow = [
-    BoxShadow(
-      color: Color(0x1E000000),
-      blurRadius: 20,
-      offset: Offset(0, 8),
-    ),
-    BoxShadow(
-      color: Color(0x0D000000),
-      blurRadius: 6,
-      offset: Offset(0, 2),
-    ),
+    BoxShadow(color: Color(0x1E000000), blurRadius: 20, offset: Offset(0, 8)),
+    BoxShadow(color: Color(0x0D000000), blurRadius: 6, offset: Offset(0, 2)),
   ];
 
   // --- Standard Desktop Typography ---

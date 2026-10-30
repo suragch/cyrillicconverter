@@ -129,14 +129,17 @@ class AppDatabase {
     final normalized = CyrillicValidator.normalizeWord(rawWord);
     if (normalized.isEmpty) return;
 
-    db.execute('''
+    db.execute(
+      '''
       INSERT INTO unknown_logs (cyrillic, frequency, last_context, last_seen)
       VALUES (?, 1, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(cyrillic) DO UPDATE SET
         frequency = frequency + 1,
         last_context = COALESCE(?, last_context),
         last_seen = CURRENT_TIMESTAMP;
-    ''', [normalized, context, context]);
+    ''',
+      [normalized, context, context],
+    );
   }
 
   /// Adds a user suggestion.
@@ -146,14 +149,20 @@ class AppDatabase {
     String? context,
     String? submittedBy,
   }) {
-    db.execute('''
+    db.execute(
+      '''
       INSERT INTO suggestions (cyrillic, menksoft_code, context, submitted_by)
       VALUES (?, ?, ?, ?)
-    ''', [cyrillic.trim(), menksoft.trim(), context?.trim(), submittedBy]);
+    ''',
+      [cyrillic.trim(), menksoft.trim(), context?.trim(), submittedBy],
+    );
   }
 
   /// Gets the top unknown words ordered by frequency, optionally filtered by minimum frequency.
-  List<Map<String, dynamic>> getTopUnknownWords({int limit = 100, int minFrequency = 1}) {
+  List<Map<String, dynamic>> getTopUnknownWords({
+    int limit = 100,
+    int minFrequency = 1,
+  }) {
     final results = db.select(
       'SELECT id, cyrillic, frequency, last_context, last_seen FROM unknown_logs WHERE frequency >= ? ORDER BY frequency DESC, last_seen DESC LIMIT ?',
       [minFrequency, limit],
@@ -179,7 +188,9 @@ class AppDatabase {
     String? verifiedBy,
   }) {
     final normalized = CyrillicValidator.normalizeWord(cyrillic);
-    final stmtWord = db.prepare('INSERT OR IGNORE INTO words (cyrillic) VALUES (?)');
+    final stmtWord = db.prepare(
+      'INSERT OR IGNORE INTO words (cyrillic) VALUES (?)',
+    );
     stmtWord.execute([normalized]);
     stmtWord.close();
 
@@ -198,12 +209,23 @@ class AppDatabase {
     if (existing.isEmpty) {
       // If setting as primary, demote existing primary definitions if needed
       if (isPrimary) {
-        db.execute('UPDATE definitions SET is_primary = 0 WHERE word_id = ?', [wordId]);
+        db.execute('UPDATE definitions SET is_primary = 0 WHERE word_id = ?', [
+          wordId,
+        ]);
       }
-      db.execute('''
+      db.execute(
+        '''
         INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary, verified_by)
         VALUES (?, ?, ?, ?, ?)
-      ''', [wordId, menksoft.trim(), explanation?.trim(), isPrimary ? 1 : 0, verifiedBy]);
+      ''',
+        [
+          wordId,
+          menksoft.trim(),
+          explanation?.trim(),
+          isPrimary ? 1 : 0,
+          verifiedBy,
+        ],
+      );
     }
 
     return wordId;
@@ -217,7 +239,9 @@ class AppDatabase {
     String? menksoft,
     String? explanation,
   }) {
-    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [suggestionId]);
+    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [
+      suggestionId,
+    ]);
     if (rows.isEmpty) return;
     final sug = rows.first;
     final finalCyrillic = (cyrillic != null && cyrillic.trim().isNotEmpty)
@@ -238,7 +262,13 @@ class AppDatabase {
 
     db.execute(
       "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [finalCyrillic, finalMenksoft, finalExplanation, verifiedBy, suggestionId],
+      [
+        finalCyrillic,
+        finalMenksoft,
+        finalExplanation,
+        verifiedBy,
+        suggestionId,
+      ],
     );
 
     // Also remove from unknown_logs if it was logged
@@ -259,24 +289,33 @@ class AppDatabase {
     String? submittedBy,
     String? reviewedBy,
   }) {
-    db.execute('''
+    db.execute(
+      '''
       INSERT INTO rejected_words (cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', [
-      cyrillic.trim(),
-      menksoft?.trim(),
-      reason.trim(),
-      details?.trim(),
-      source,
-      sourceId,
-      submittedBy,
-      reviewedBy,
-    ]);
+    ''',
+      [
+        cyrillic.trim(),
+        menksoft?.trim(),
+        reason.trim(),
+        details?.trim(),
+        source,
+        sourceId,
+        submittedBy,
+        reviewedBy,
+      ],
+    );
   }
 
   /// Moderator review: Reject suggestion and log to rejected_words table.
-  void rejectSuggestion(int suggestionId, {String? reason, String? reviewedBy}) {
-    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [suggestionId]);
+  void rejectSuggestion(
+    int suggestionId, {
+    String? reason,
+    String? reviewedBy,
+  }) {
+    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [
+      suggestionId,
+    ]);
     if (rows.isNotEmpty) {
       final sug = rows.first;
       logRejectedWord(
@@ -298,13 +337,19 @@ class AppDatabase {
   }
 
   /// Moderator review: Reject missing word from unknown_logs and log to rejected_words table.
-  void rejectMissingWord(String cyrillic, {required String reason, String? reviewedBy}) {
+  void rejectMissingWord(
+    String cyrillic, {
+    required String reason,
+    String? reviewedBy,
+  }) {
     final normalized = CyrillicValidator.normalizeWord(cyrillic);
-    final rows = db.select('SELECT * FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
-      normalized,
-      normalized.toLowerCase(),
-    ]);
-    final lastContext = rows.isNotEmpty ? (rows.first['last_context'] as String?) : null;
+    final rows = db.select(
+      'SELECT * FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?',
+      [normalized, normalized.toLowerCase()],
+    );
+    final lastContext = rows.isNotEmpty
+        ? (rows.first['last_context'] as String?)
+        : null;
 
     logRejectedWord(
       cyrillic: normalized,
@@ -354,36 +399,59 @@ class AppDatabase {
       JOIN definitions d ON w.id = d.word_id
       ORDER BY w.cyrillic ASC, d.is_primary DESC;
     ''');
-    return rows.map((r) => {
-      'cyrillic': r['cyrillic'],
-      'menksoft': r['menksoft_code'],
-      'explanation': r['explanation'],
-      'isPrimary': (r['is_primary'] as int) == 1,
-    }).toList();
+    return rows
+        .map(
+          (r) => {
+            'cyrillic': r['cyrillic'],
+            'menksoft': r['menksoft_code'],
+            'explanation': r['explanation'],
+            'isPrimary': (r['is_primary'] as int) == 1,
+          },
+        )
+        .toList();
   }
 
   /// Returns all records across all tables as a JSON-serializable Map.
   Map<String, dynamic> getFullDatabaseJson() {
-    final words = db.select('SELECT id, cyrillic, is_abbreviation, created_at FROM words ORDER BY id ASC;');
-    final definitions = db.select('SELECT id, word_id, menksoft_code, explanation, is_primary, verified_by, created_at FROM definitions ORDER BY id ASC;');
-    final unknownLogs = db.select('SELECT id, cyrillic, frequency, last_context, first_seen, last_seen FROM unknown_logs ORDER BY frequency DESC;');
-    final suggestions = db.select('SELECT id, cyrillic, menksoft_code, context, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;');
-    final rejectedWords = db.select('SELECT id, cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by, created_at FROM rejected_words ORDER BY id ASC;');
+    final words = db.select(
+      'SELECT id, cyrillic, is_abbreviation, created_at FROM words ORDER BY id ASC;',
+    );
+    final definitions = db.select(
+      'SELECT id, word_id, menksoft_code, explanation, is_primary, verified_by, created_at FROM definitions ORDER BY id ASC;',
+    );
+    final unknownLogs = db.select(
+      'SELECT id, cyrillic, frequency, last_context, first_seen, last_seen FROM unknown_logs ORDER BY frequency DESC;',
+    );
+    final suggestions = db.select(
+      'SELECT id, cyrillic, menksoft_code, context, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;',
+    );
+    final rejectedWords = db.select(
+      'SELECT id, cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by, created_at FROM rejected_words ORDER BY id ASC;',
+    );
 
     return {
       'exported_at': DateTime.now().toIso8601String(),
       'words': words.map((r) => Map<String, dynamic>.from(r)).toList(),
-      'definitions': definitions.map((r) => Map<String, dynamic>.from(r)).toList(),
-      'unknown_logs': unknownLogs.map((r) => Map<String, dynamic>.from(r)).toList(),
-      'suggestions': suggestions.map((r) => Map<String, dynamic>.from(r)).toList(),
-      'rejected_words': rejectedWords.map((r) => Map<String, dynamic>.from(r)).toList(),
+      'definitions': definitions
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList(),
+      'unknown_logs': unknownLogs
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList(),
+      'suggestions': suggestions
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList(),
+      'rejected_words': rejectedWords
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList(),
     };
   }
 
   /// Seeds or syncs data from the old PocketBase collection into SQLite.
   /// Returns a map with summary counts: {'imported': N, 'skipped': M, 'total': Total}
   Future<Map<String, int>> seedFromOldApp({
-    String baseUrl = 'https://cyrillic.suragch.dev/api/collections/words/records',
+    String baseUrl =
+        'https://cyrillic.suragch.dev/api/collections/words/records',
     void Function(String message)? onProgress,
   }) async {
     int page = 1;
@@ -414,7 +482,10 @@ class AppDatabase {
           final cyrillic = (item['cyrillic'] as String?)?.trim();
           final mongol = (item['mongol'] as String?)?.trim();
 
-          if (cyrillic == null || cyrillic.isEmpty || mongol == null || mongol.isEmpty) {
+          if (cyrillic == null ||
+              cyrillic.isEmpty ||
+              mongol == null ||
+              mongol.isEmpty) {
             totalSkipped++;
             continue;
           }
@@ -422,10 +493,15 @@ class AppDatabase {
           final normalized = CyrillicValidator.normalizeWord(cyrillic);
 
           // 1. Insert word
-          db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [normalized]);
+          db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [
+            normalized,
+          ]);
 
           // 2. Get word id
-          final row = db.select('SELECT id FROM words WHERE cyrillic = ? LIMIT 1;', [normalized]);
+          final row = db.select(
+            'SELECT id FROM words WHERE cyrillic = ? LIMIT 1;',
+            [normalized],
+          );
           if (row.isEmpty) {
             totalSkipped++;
             continue;
@@ -439,14 +515,20 @@ class AppDatabase {
           );
 
           if (existingDef.isEmpty) {
-            final countRow = db.select('SELECT count(*) as count FROM definitions WHERE word_id = ?;', [wordId]);
+            final countRow = db.select(
+              'SELECT count(*) as count FROM definitions WHERE word_id = ?;',
+              [wordId],
+            );
             final existingCount = countRow.first['count'] as int;
             final isPrimary = existingCount == 0 ? 1 : 0;
 
-            db.execute('''
+            db.execute(
+              '''
               INSERT INTO definitions (word_id, menksoft_code, is_primary, verified_by)
               VALUES (?, ?, ?, 'migrated');
-            ''', [wordId, mongol, isPrimary]);
+            ''',
+              [wordId, mongol, isPrimary],
+            );
             totalImported++;
           }
         }

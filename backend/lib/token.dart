@@ -25,7 +25,8 @@ class Token {
       type: json['type'] as String,
       original: json['original'] as String,
       menksoft: json['menksoft'] as String?,
-      options: (json['options'] as List<dynamic>?)
+      options:
+          (json['options'] as List<dynamic>?)
               ?.map((e) => TokenOption.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],

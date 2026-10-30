@@ -46,14 +46,34 @@ void main() {
 
   // Seed data
   final words = [
-    {'cyrillic': 'Монгол', 'menksoft': '\u182E\u1823\u1829\u182D\u1823\u182F', 'explanation': 'Mongol'},
-    {'cyrillic': 'сайн', 'menksoft': '\u1830\u1822\u1828\u1822', 'explanation': 'good'},
-    {'cyrillic': 'байна', 'menksoft': '\u182A\u1822\u1828\u1822\u1826', 'explanation': 'is/exists'},
-    {'cyrillic': 'уу', 'menksoft': '\u1824\u1824', 'explanation': 'question particle'},
+    {
+      'cyrillic': 'Монгол',
+      'menksoft': '\u182E\u1823\u1829\u182D\u1823\u182F',
+      'explanation': 'Mongol',
+    },
+    {
+      'cyrillic': 'сайн',
+      'menksoft': '\u1830\u1822\u1828\u1822',
+      'explanation': 'good',
+    },
+    {
+      'cyrillic': 'байна',
+      'menksoft': '\u182A\u1822\u1828\u1822\u1826',
+      'explanation': 'is/exists',
+    },
+    {
+      'cyrillic': 'уу',
+      'menksoft': '\u1824\u1824',
+      'explanation': 'question particle',
+    },
   ];
 
-  final stmtWord = db.prepare('INSERT OR IGNORE INTO words (cyrillic) VALUES (?)');
-  final stmtDef = db.prepare('INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary) VALUES (?, ?, ?, 1)');
+  final stmtWord = db.prepare(
+    'INSERT OR IGNORE INTO words (cyrillic) VALUES (?)',
+  );
+  final stmtDef = db.prepare(
+    'INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary) VALUES (?, ?, ?, 1)',
+  );
   final getWordId = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
 
   for (final w in words) {
@@ -62,9 +82,12 @@ void main() {
     if (result.isNotEmpty) {
       final id = result.first['id'];
       // Check if definition exists to avoid duplicates on re-run
-      final checkDef = db.select('SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ?', [id, w['menksoft']]);
+      final checkDef = db.select(
+        'SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ?',
+        [id, w['menksoft']],
+      );
       if (checkDef.isEmpty) {
-         stmtDef.execute([id, w['menksoft'], w['explanation']]);
+        stmtDef.execute([id, w['menksoft'], w['explanation']]);
       }
     }
   }
@@ -76,18 +99,31 @@ void main() {
   final bankIdResult = getWordId.select(['банк']);
   if (bankIdResult.isNotEmpty) {
     final bankId = bankIdResult.first['id'];
-    
+
     // Financial
-    final checkDef1 = db.select('SELECT id FROM definitions WHERE word_id = ? AND explanation = ?', [bankId, 'financial institution']);
+    final checkDef1 = db.select(
+      'SELECT id FROM definitions WHERE word_id = ? AND explanation = ?',
+      [bankId, 'financial institution'],
+    );
     if (checkDef1.isEmpty) {
-        stmtDef.execute([bankId, '\u182A\u1820\u1829\u182A\u1821', 'financial institution']); // Dummy code
+      stmtDef.execute([
+        bankId,
+        '\u182A\u1820\u1829\u182A\u1821',
+        'financial institution',
+      ]); // Dummy code
     }
 
     // River bank (using different dummy code for distinction)
-    final checkDef2 = db.select('SELECT id FROM definitions WHERE word_id = ? AND explanation = ?', [bankId, 'river bank']);
+    final checkDef2 = db.select(
+      'SELECT id FROM definitions WHERE word_id = ? AND explanation = ?',
+      [bankId, 'river bank'],
+    );
     if (checkDef2.isEmpty) {
-        // Manually insert with is_primary = 0
-        db.execute('INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary) VALUES (?, ?, ?, 0)', [bankId, '\u182A\u1820\u1829\u182A\u1821_river', 'river bank']);
+      // Manually insert with is_primary = 0
+      db.execute(
+        'INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary) VALUES (?, ?, ?, 0)',
+        [bankId, '\u182A\u1820\u1829\u182A\u1821_river', 'river bank'],
+      );
     }
   }
 

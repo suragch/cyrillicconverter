@@ -210,15 +210,20 @@ class _ConverterScreenState extends State<ConverterScreen> {
           .get(Uri.parse('$_serverUrl/health'))
           .timeout(const Duration(seconds: 3));
       if (res.statusCode == 200) {
-        if (mounted) setState(() => _serverStatusText = 'Сервер: Хэвийн');
+        if (mounted) {
+          setState(() => _serverStatusText = 'Сервер: Хэвийн');
+        }
       } else {
-        if (mounted)
+        if (mounted) {
           setState(
             () => _serverStatusText = 'Сервер: Алдаа (${res.statusCode})',
           );
+        }
       }
     } catch (_) {
-      if (mounted) setState(() => _serverStatusText = 'Сервер: Холбогдоогүй');
+      if (mounted) {
+        setState(() => _serverStatusText = 'Сервер: Холбогдоогүй');
+      }
     }
   }
 

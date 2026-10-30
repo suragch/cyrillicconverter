@@ -59,10 +59,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
     });
 
     try {
-      final res = await http.get(
-        Uri.parse('${widget.serverUrl}/words/check?cyrillic=${Uri.encodeComponent(clean)}'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 6));
+      final res = await http
+          .get(
+            Uri.parse(
+              '${widget.serverUrl}/words/check?cyrillic=${Uri.encodeComponent(clean)}',
+            ),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -92,29 +96,30 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
         title: 'Толь бичигт нэмэх: "$cyrillic"',
         initialCyrillic: cyrillic,
         submitButtonText: 'Хадгалах',
-        onSubmit: ({
-          required String cyrillic,
-          required String menksoft,
-          String? explanation,
-        }) async {
-          final res = await http.post(
-            Uri.parse('${widget.serverUrl}/admin/words'),
-            headers: _headers,
-            body: jsonEncode({
-              'cyrillic': cyrillic,
-              'menksoft': menksoft,
-              'explanation': explanation,
-              'isPrimary': false,
-              'moderatorId': widget.moderatorId,
-            }),
-          );
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? explanation,
+            }) async {
+              final res = await http.post(
+                Uri.parse('${widget.serverUrl}/admin/words'),
+                headers: _headers,
+                body: jsonEncode({
+                  'cyrillic': cyrillic,
+                  'menksoft': menksoft,
+                  'explanation': explanation,
+                  'isPrimary': false,
+                  'moderatorId': widget.moderatorId,
+                }),
+              );
 
-          if (res.statusCode == 200) {
-            _searchWord(cyrillic);
-          } else {
-            throw Exception(res.body);
-          }
-        },
+              if (res.statusCode == 200) {
+                _searchWord(cyrillic);
+              } else {
+                throw Exception(res.body);
+              }
+            },
       ),
     );
   }
@@ -160,17 +165,33 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                             decoration: BoxDecoration(
                               color: DesktopTheme.panelBackground,
                               borderRadius: DesktopTheme.roundedSmall,
-                              border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+                              border: Border.all(
+                                color: DesktopTheme.borderMedium,
+                                width: 1,
+                              ),
                             ),
                             child: TextField(
                               controller: _searchController,
-                              style: const TextStyle(fontSize: 13, fontFamily: null),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontFamily: null,
+                              ),
                               decoration: const InputDecoration(
                                 hintText: 'Жишээ: монгол, төр, гол, ажил...',
-                                hintStyle: TextStyle(fontSize: 13, color: DesktopTheme.textMuted),
+                                hintStyle: TextStyle(
+                                  fontSize: 13,
+                                  color: DesktopTheme.textMuted,
+                                ),
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                prefixIcon: Icon(Icons.search, size: 18, color: DesktopTheme.textSecondary),
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                prefixIcon: Icon(
+                                  Icons.search,
+                                  size: 18,
+                                  color: DesktopTheme.textSecondary,
+                                ),
                               ),
                               onSubmitted: _searchWord,
                             ),
@@ -207,22 +228,29 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               if (_errorMessage != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: DesktopTheme.dangerSurface,
                     borderRadius: DesktopTheme.roundedSmall,
-                    border: Border.all(color: DesktopTheme.dangerBorder, width: 1),
+                    border: Border.all(
+                      color: DesktopTheme.dangerBorder,
+                      width: 1,
+                    ),
                   ),
                   child: Text(
                     _errorMessage!,
-                    style: const TextStyle(fontSize: 13, color: DesktopTheme.danger),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: DesktopTheme.danger,
+                    ),
                   ),
                 ),
 
               // Results Area
-              Expanded(
-                child: _buildResultsArea(),
-              ),
+              Expanded(child: _buildResultsArea()),
             ],
           ),
         ),
@@ -232,9 +260,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
   Widget _buildResultsArea() {
     if (_isSearching) {
-      return const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 
     if (_searchResult == null) {
@@ -249,7 +275,11 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search, size: 48, color: DesktopTheme.textMuted.withValues(alpha: 0.5)),
+            Icon(
+              Icons.search,
+              size: 48,
+              color: DesktopTheme.textMuted.withValues(alpha: 0.5),
+            ),
             const SizedBox(height: 12),
             const Text(
               'Толь бичгээс хайх үгээ дээрх талбарт оруулна уу.',
@@ -262,7 +292,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
     final exists = _searchResult!['exists'] == true;
     final definitions = (_searchResult!['definitions'] as List?) ?? [];
-    final rejectionHistory = (_searchResult!['rejectionHistory'] as List?) ?? [];
+    final rejectionHistory =
+        (_searchResult!['rejectionHistory'] as List?) ?? [];
     final searchedWord = _lastSearchedWord ?? '';
 
     return Container(
@@ -292,21 +323,32 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                   ),
                   const SizedBox(width: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
-                      color: exists ? DesktopTheme.successSurface : DesktopTheme.warningSurface,
+                      color: exists
+                          ? DesktopTheme.successSurface
+                          : DesktopTheme.warningSurface,
                       borderRadius: DesktopTheme.roundedSmall,
                       border: Border.all(
-                        color: exists ? DesktopTheme.successBorder : DesktopTheme.warningBorder,
+                        color: exists
+                            ? DesktopTheme.successBorder
+                            : DesktopTheme.warningBorder,
                         width: 1,
                       ),
                     ),
                     child: Text(
-                      exists ? 'Толь бичигт байна (${definitions.length})' : 'Толь бичигт байхгүй',
+                      exists
+                          ? 'Толь бичигт байна (${definitions.length})'
+                          : 'Толь бичигт байхгүй',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: exists ? DesktopTheme.success : DesktopTheme.warning,
+                        color: exists
+                            ? DesktopTheme.success
+                            : DesktopTheme.warning,
                       ),
                     ),
                   ),
@@ -333,7 +375,11 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.history, size: 16, color: DesktopTheme.warning),
+                  const Icon(
+                    Icons.history,
+                    size: 16,
+                    color: DesktopTheme.warning,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -356,7 +402,11 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.info_outline, size: 36, color: DesktopTheme.textMuted),
+                    const Icon(
+                      Icons.info_outline,
+                      size: 36,
+                      color: DesktopTheme.textMuted,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       '"$searchedWord" үгэнд одоогоор босоо бичлэгийн хувилбар бүртгэгдээгүй байна.',
@@ -402,7 +452,10 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                           decoration: BoxDecoration(
                             color: DesktopTheme.panelBackground,
                             borderRadius: DesktopTheme.roundedSmall,
-                            border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+                            border: Border.all(
+                              color: DesktopTheme.borderMedium,
+                              width: 1,
+                            ),
                           ),
                           alignment: Alignment.topCenter,
                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -430,20 +483,35 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                   if (isPrimary)
                                     Container(
                                       margin: const EdgeInsets.only(right: 8),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: DesktopTheme.primarySurface,
                                         borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: DesktopTheme.primary.withValues(alpha: 0.3), width: 1),
+                                        border: Border.all(
+                                          color: DesktopTheme.primary
+                                              .withValues(alpha: 0.3),
+                                          width: 1,
+                                        ),
                                       ),
                                       child: const Text(
                                         'Үндсэн утга',
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: DesktopTheme.primary),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: DesktopTheme.primary,
+                                        ),
                                       ),
                                     ),
                                   Text(
                                     'Хувилбар #${index + 1}',
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: DesktopTheme.textSecondary),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: DesktopTheme.textSecondary,
+                                    ),
                                   ),
                                   const Spacer(),
                                   DesktopIconButton(
@@ -451,10 +519,20 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                     tooltip: 'Юникод хэлбэрээр хуулах',
                                     size: 15,
                                     onPressed: () {
-                                      final unicode = LatinIme.menksoftToUnicode(menksoft);
-                                      Clipboard.setData(ClipboardData(text: unicode));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Юникод хэлбэрээр хууллаа'), duration: Duration(seconds: 1)),
+                                      final unicode =
+                                          LatinIme.menksoftToUnicode(menksoft);
+                                      Clipboard.setData(
+                                        ClipboardData(text: unicode),
+                                      );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Юникод хэлбэрээр хууллаа',
+                                          ),
+                                          duration: Duration(seconds: 1),
+                                        ),
                                       );
                                     },
                                   ),
@@ -463,13 +541,22 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                               const SizedBox(height: 8),
                               Row(
                                 children: [
-                                  const Text('Латин галиг: ', style: DesktopTheme.caption),
+                                  const Text(
+                                    'Латин галиг: ',
+                                    style: DesktopTheme.caption,
+                                  ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: DesktopTheme.panelBackground,
                                       borderRadius: BorderRadius.circular(3),
-                                      border: Border.all(color: DesktopTheme.border, width: 1),
+                                      border: Border.all(
+                                        color: DesktopTheme.border,
+                                        width: 1,
+                                      ),
                                     ),
                                     child: Text(
                                       latin.isEmpty ? '—' : latin,
@@ -490,10 +577,13 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                     : 'Ялгах тайлбар байхгүй',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: explanation != null && explanation.isNotEmpty
+                                  color:
+                                      explanation != null &&
+                                          explanation.isNotEmpty
                                       ? DesktopTheme.textPrimary
                                       : DesktopTheme.textMuted,
-                                  fontStyle: explanation == null || explanation.isEmpty
+                                  fontStyle:
+                                      explanation == null || explanation.isEmpty
                                       ? FontStyle.italic
                                       : FontStyle.normal,
                                 ),

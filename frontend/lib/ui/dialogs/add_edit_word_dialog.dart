@@ -14,7 +14,8 @@ class AddEditWordDialog extends StatefulWidget {
     required String cyrillic,
     required String menksoft,
     String? explanation,
-  }) onSubmit;
+  })
+  onSubmit;
   final String title;
   final String submitButtonText;
   final bool initialShowKeyboard;
@@ -48,7 +49,9 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     _showKeyboard = widget.initialShowKeyboard;
     _cyrillicController = TextEditingController(text: widget.initialCyrillic);
     _latinController = TextEditingController(text: widget.initialLatin);
-    _explanationController = TextEditingController(text: widget.initialExplanation);
+    _explanationController = TextEditingController(
+      text: widget.initialExplanation,
+    );
 
     _latinController.addListener(_onLatinChanged);
     _onLatinChanged();
@@ -108,7 +111,10 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Алдаа гарлаа: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -131,193 +137,247 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
       },
       child: SelectionArea(
         child: DesktopDialogFrame(
-        title: widget.title,
-        maxWidth: 700,
-        maxHeight: 740,
-        leadingIcon: const Icon(Icons.edit_note, size: 18, color: DesktopTheme.primary),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                DesktopButton(
-                  onPressed: () => setState(() => _showKeyboard = !_showKeyboard),
-                  label: _showKeyboard ? 'Товчлуур нуух' : 'Товчлуур харах',
-                  icon: Icon(_showKeyboard ? Icons.keyboard_hide : Icons.keyboard, size: 14),
-                  variant: DesktopButtonVariant.subtle,
-                  isDense: true,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Vertical Mongolian preview
-                Container(
-                  width: 75,
-                  height: 170,
-                  decoration: BoxDecoration(
-                    color: DesktopTheme.canvas,
-                    borderRadius: DesktopTheme.roundedSmall,
-                    border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+          title: widget.title,
+          maxWidth: 700,
+          maxHeight: 740,
+          leadingIcon: const Icon(
+            Icons.edit_note,
+            size: 18,
+            color: DesktopTheme.primary,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  DesktopButton(
+                    onPressed: () =>
+                        setState(() => _showKeyboard = !_showKeyboard),
+                    label: _showKeyboard ? 'Товчлуур нуух' : 'Товчлуур харах',
+                    icon: Icon(
+                      _showKeyboard ? Icons.keyboard_hide : Icons.keyboard,
+                      size: 14,
+                    ),
+                    variant: DesktopButtonVariant.subtle,
+                    isDense: true,
                   ),
-                  alignment: Alignment.topCenter,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: MongolText(
-                      _previewMenksoft.isEmpty ? ' ' : _previewMenksoft,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontFamily: 'Menksoft',
-                        color: DesktopTheme.textPrimary,
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Vertical Mongolian preview
+                  Container(
+                    width: 75,
+                    height: 170,
+                    decoration: BoxDecoration(
+                      color: DesktopTheme.canvas,
+                      borderRadius: DesktopTheme.roundedSmall,
+                      border: Border.all(
+                        color: DesktopTheme.borderMedium,
+                        width: 1,
+                      ),
+                    ),
+                    alignment: Alignment.topCenter,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: MongolText(
+                        _previewMenksoft.isEmpty ? ' ' : _previewMenksoft,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontFamily: 'Menksoft',
+                          color: DesktopTheme.textPrimary,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                // Inputs
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isCyrillicFixed)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: DesktopTheme.secondarySurface,
-                            borderRadius: DesktopTheme.roundedSmall,
-                            border: Border.all(color: DesktopTheme.border, width: 1),
-                          ),
-                          child: Row(
-                            children: [
-                              Text(
-                                'Кирилл: ${widget.initialCyrillic}',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: DesktopTheme.textPrimary,
+                  const SizedBox(width: 16),
+                  // Inputs
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isCyrillicFixed)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: DesktopTheme.secondarySurface,
+                              borderRadius: DesktopTheme.roundedSmall,
+                              border: Border.all(
+                                color: DesktopTheme.border,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Кирилл: ${widget.initialCyrillic}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: DesktopTheme.textPrimary,
+                                  ),
                                 ),
+                                const Spacer(),
+                                DesktopIconButton(
+                                  icon: Icons.copy,
+                                  size: 14,
+                                  tooltip: 'Кирилл үгийг хуулах',
+                                  onPressed: () {
+                                    Clipboard.setData(
+                                      ClipboardData(
+                                        text: widget.initialCyrillic ?? '',
+                                      ),
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Кирилл үг хуулагдлаа'),
+                                        duration: Duration(seconds: 1),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          TextField(
+                            controller: _cyrillicController,
+                            style: const TextStyle(fontSize: 13),
+                            onSubmitted: (_) {
+                              if (!_isSubmitting) _submit();
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Кирилл үг',
+                              labelStyle: const TextStyle(fontSize: 12),
+                              border: const OutlineInputBorder(
+                                borderRadius: DesktopTheme.roundedSmall,
                               ),
-                              const Spacer(),
-                              DesktopIconButton(
-                                icon: Icons.copy,
-                                size: 14,
-                                tooltip: 'Кирилл үгийг хуулах',
-                                onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: widget.initialCyrillic ?? ''));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Кирилл үг хуулагдлаа'),
-                                      duration: Duration(seconds: 1),
-                                    ),
-                                  );
-                                },
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
                               ),
-                            ],
+                              suffixIcon: _cyrillicController.text.isNotEmpty
+                                  ? DesktopIconButton(
+                                      icon: Icons.copy,
+                                      size: 14,
+                                      tooltip: 'Кирилл үгийг хуулах',
+                                      onPressed: () {
+                                        Clipboard.setData(
+                                          ClipboardData(
+                                            text: _cyrillicController.text,
+                                          ),
+                                        );
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Кирилл үг хуулагдлаа',
+                                            ),
+                                            duration: Duration(seconds: 1),
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  : null,
+                            ),
+                            onChanged: (_) => setState(() {}),
                           ),
-                        )
-                      else
+                        const SizedBox(height: 10),
                         TextField(
-                          controller: _cyrillicController,
-                          style: const TextStyle(fontSize: 13),
+                          controller: _latinController,
+                          autofocus: true,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontFamily: 'monospace',
+                          ),
                           onSubmitted: (_) {
                             if (!_isSubmitting) _submit();
                           },
                           decoration: InputDecoration(
-                            labelText: 'Кирилл үг',
+                            labelText: 'Латин галиг',
                             labelStyle: const TextStyle(fontSize: 12),
-                            border: const OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            suffixIcon: _cyrillicController.text.isNotEmpty
-                                ? DesktopIconButton(
-                                    icon: Icons.copy,
-                                    size: 14,
-                                    tooltip: 'Кирилл үгийг хуулах',
-                                    onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: _cyrillicController.text));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Кирилл үг хуулагдлаа'),
-                                          duration: Duration(seconds: 1),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : null,
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _latinController,
-                        autofocus: true,
-                        style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-                        onSubmitted: (_) {
-                          if (!_isSubmitting) _submit();
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Латин галиг',
-                          labelStyle: const TextStyle(fontSize: 12),
-                          helperText: 'Энд монгол бичвэр (Юникод) буулгаж болно',
-                          helperStyle: const TextStyle(fontSize: 11, color: DesktopTheme.textMuted),
-                          hintText: 'q=o, w=wa, v=u, o=oe, u=ue, E=ee',
-                          hintStyle: const TextStyle(fontSize: 11, color: DesktopTheme.textMuted),
-                          border: const OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          suffixIcon: DesktopIconButton(
-                            icon: Icons.content_paste,
-                            size: 14,
-                            tooltip: 'Буулгах',
-                            onPressed: () async {
-                              final data = await Clipboard.getData(Clipboard.kTextPlain);
-                              final text = data?.text;
-                              if (text != null && text.isNotEmpty) {
-                                _latinController.text = text;
-                              }
-                            },
+                            helperText:
+                                'Энд монгол бичвэр (Юникод) буулгаж болно',
+                            helperStyle: const TextStyle(
+                              fontSize: 11,
+                              color: DesktopTheme.textMuted,
+                            ),
+                            hintText: 'q=o, w=wa, v=u, o=oe, u=ue, E=ee',
+                            hintStyle: const TextStyle(
+                              fontSize: 11,
+                              color: DesktopTheme.textMuted,
+                            ),
+                            border: const OutlineInputBorder(
+                              borderRadius: DesktopTheme.roundedSmall,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            suffixIcon: DesktopIconButton(
+                              icon: Icons.content_paste,
+                              size: 14,
+                              tooltip: 'Буулгах',
+                              onPressed: () async {
+                                final data = await Clipboard.getData(
+                                  Clipboard.kTextPlain,
+                                );
+                                final text = data?.text;
+                                if (text != null && text.isNotEmpty) {
+                                  _latinController.text = text;
+                                }
+                              },
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _explanationController,
-                        style: const TextStyle(fontSize: 13),
-                        onSubmitted: (_) {
-                          if (!_isSubmitting) _submit();
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Тайлбар (заавал биш)',
-                          labelStyle: TextStyle(fontSize: 12),
-                          border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _explanationController,
+                          style: const TextStyle(fontSize: 13),
+                          onSubmitted: (_) {
+                            if (!_isSubmitting) _submit();
+                          },
+                          decoration: const InputDecoration(
+                            labelText: 'Тайлбар (заавал биш)',
+                            labelStyle: TextStyle(fontSize: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: DesktopTheme.roundedSmall,
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            if (_showKeyboard) ...[
-              const SizedBox(height: 12),
-              SelectionContainer.disabled(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: DesktopTheme.canvas,
-                    borderRadius: DesktopTheme.roundedSmall,
-                    border: Border.all(color: DesktopTheme.border, width: 1),
-                  ),
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildKeyboardCategory(
-                        'Эгшиг (Vowels)',
-                        [
+                ],
+              ),
+              if (_showKeyboard) ...[
+                const SizedBox(height: 12),
+                SelectionContainer.disabled(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: DesktopTheme.canvas,
+                      borderRadius: DesktopTheme.roundedSmall,
+                      border: Border.all(color: DesktopTheme.border, width: 1),
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildKeyboardCategory('Эгшиг (Vowels)', [
                           ('a', 'ᠠ a'),
                           ('e', 'ᠡ e'),
                           ('i', 'ᠢ i'),
@@ -326,87 +386,89 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                           ('o', 'ᠥ ö'),
                           ('u', 'ᠦ ü'),
                           ('E', 'ᠧ ee'),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _buildKeyboardCategory(
-                        'Үндсэн гийгүүлэгч (Consonants)',
-                        [
-                          ('n', 'ᠨ na'),
-                          ('b', 'ᠪ ba'),
-                          ('p', 'ᠫ pa'),
-                          ('h', 'ᠬ qa'),
-                          ('g', 'ᠭ ga'),
-                          ('m', 'ᠮ ma'),
-                          ('l', 'ᠯ la'),
-                          ('s', 'ᠰ sa'),
-                          ('x', 'ᡧ sha'),
-                          ('t', 'ᠲ ta'),
-                          ('d', 'ᠳ da'),
-                          ('c', 'ᠴ cha'),
-                          ('j', 'ᠵ ja'),
-                          ('y', 'ᠶ ya'),
-                          ('r', 'ᠷ ra'),
-                          ('w', 'ᠸ wa'),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _buildKeyboardCategory(
-                        'Гадаад & Тусгай (Foreign & Special)',
-                        [
-                          ('f', 'ᠹ fa'),
-                          ('k', 'ᠺ ka'),
-                          ('K', 'ᠻ kha'),
-                          ('C', 'ᠼ tsa'),
-                          ('z', 'ᠽ za'),
-                          ('H', 'ᠾ haa'),
-                          ('R', 'ᠿ zra'),
-                          ('L', 'ᡀ lha'),
-                          ('Z', 'ᡁ zhi'),
-                          ('Q', 'ᡂ chi'),
-                          ('N', 'ᠩ ang'),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _buildKeyboardCategory(
-                        'Дагавар & Хувилбар (Control / Suffixes)',
-                        [
-                          ('-', 'MVS (-)'),
-                          ('1', 'FVS1 (1)'),
-                          ('2', 'FVS2 (2)'),
-                          ('3', 'FVS3 (3)'),
-                          ('4', 'FVS4 (4)'),
-                        ],
-                      ),
-                    ],
+                        ]),
+                        const SizedBox(height: 6),
+                        _buildKeyboardCategory(
+                          'Үндсэн гийгүүлэгч (Consonants)',
+                          [
+                            ('n', 'ᠨ na'),
+                            ('b', 'ᠪ ba'),
+                            ('p', 'ᠫ pa'),
+                            ('h', 'ᠬ qa'),
+                            ('g', 'ᠭ ga'),
+                            ('m', 'ᠮ ma'),
+                            ('l', 'ᠯ la'),
+                            ('s', 'ᠰ sa'),
+                            ('x', 'ᡧ sha'),
+                            ('t', 'ᠲ ta'),
+                            ('d', 'ᠳ da'),
+                            ('c', 'ᠴ cha'),
+                            ('j', 'ᠵ ja'),
+                            ('y', 'ᠶ ya'),
+                            ('r', 'ᠷ ra'),
+                            ('w', 'ᠸ wa'),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        _buildKeyboardCategory(
+                          'Гадаад & Тусгай (Foreign & Special)',
+                          [
+                            ('f', 'ᠹ fa'),
+                            ('k', 'ᠺ ka'),
+                            ('K', 'ᠻ kha'),
+                            ('C', 'ᠼ tsa'),
+                            ('z', 'ᠽ za'),
+                            ('H', 'ᠾ haa'),
+                            ('R', 'ᠿ zra'),
+                            ('L', 'ᡀ lha'),
+                            ('Z', 'ᡁ zhi'),
+                            ('Q', 'ᡂ chi'),
+                            ('N', 'ᠩ ang'),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        _buildKeyboardCategory(
+                          'Дагавар & Хувилбар (Control / Suffixes)',
+                          [
+                            ('-', 'MVS (-)'),
+                            ('1', 'FVS1 (1)'),
+                            ('2', 'FVS2 (2)'),
+                            ('3', 'FVS3 (3)'),
+                            ('4', 'FVS4 (4)'),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
+          ),
+          actions: [
+            DesktopButton(
+              onPressed: () => Navigator.pop(context),
+              label: 'Цуцлах',
+              variant: DesktopButtonVariant.secondary,
+              isDense: true,
+            ),
+            const SizedBox(width: 8),
+            DesktopButton(
+              onPressed: _isSubmitting ? null : _submit,
+              label: widget.submitButtonText,
+              variant: DesktopButtonVariant.primary,
+              isLoading: _isSubmitting,
+              isDense: true,
+            ),
           ],
         ),
-        actions: [
-          DesktopButton(
-            onPressed: () => Navigator.pop(context),
-            label: 'Цуцлах',
-            variant: DesktopButtonVariant.secondary,
-            isDense: true,
-          ),
-          const SizedBox(width: 8),
-          DesktopButton(
-            onPressed: _isSubmitting ? null : _submit,
-            label: widget.submitButtonText,
-            variant: DesktopButtonVariant.primary,
-            isLoading: _isSubmitting,
-            isDense: true,
-          ),
-        ],
       ),
-    ),
-  );
-}
+    );
+  }
 
-  Widget _buildKeyboardCategory(String label, List<(String key, String display)> items) {
+  Widget _buildKeyboardCategory(
+    String label,
+    List<(String key, String display)> items,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -439,11 +501,17 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                     children: [
                       TextSpan(
                         text: '${item.$1} ',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
                       ),
                       TextSpan(
                         text: item.$2,
-                        style: const TextStyle(fontSize: 11, color: Colors.black54),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.black54,
+                        ),
                       ),
                     ],
                   ),

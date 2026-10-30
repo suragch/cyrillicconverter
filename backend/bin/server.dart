@@ -69,7 +69,9 @@ Future<Response> _loginHandler(Request request) async {
       authData = await pb.collection('users').authWithPassword(email, password);
     } catch (_) {
       try {
-        authData = await pb.collection('_superusers').authWithPassword(email, password);
+        authData = await pb
+            .collection('_superusers')
+            .authWithPassword(email, password);
         isSuperuser = true;
       } catch (_) {}
     }
@@ -90,7 +92,9 @@ Future<Response> _loginHandler(Request request) async {
         'token': authData.token,
         'user': {
           'id': user.id,
-          'email': user.getStringValue('email').isNotEmpty ? user.getStringValue('email') : email,
+          'email': user.getStringValue('email').isNotEmpty
+              ? user.getStringValue('email')
+              : email,
           'role': role,
         },
       }),
@@ -99,7 +103,9 @@ Future<Response> _loginHandler(Request request) async {
   } catch (e) {
     return Response(
       401,
-      body: jsonEncode({'error': 'Имэйл эсвэл нууц үг буруу байна (Invalid email or password)'}),
+      body: jsonEncode({
+        'error': 'Имэйл эсвэл нууц үг буруу байна (Invalid email or password)',
+      }),
       headers: {'content-type': 'application/json'},
     );
   }
@@ -127,11 +133,7 @@ Response _authMeHandler(Request request) {
       'role': role,
       'isModerator': auth.isModerator,
       if (auth.token != null) 'token': auth.token,
-      'user': {
-        'id': id,
-        'email': email,
-        'role': role,
-      },
+      'user': {'id': id, 'email': email, 'role': role},
     }),
     headers: {'content-type': 'application/json'},
   );
@@ -209,7 +211,8 @@ bool _shouldLogUnknownWord(String clientKey, String normalizedCyrillic) {
   final cacheKey = '$clientKey:$normalizedCyrillic';
   final lastLogged = _recentUnknownWordLogs[cacheKey];
 
-  if (lastLogged != null && now.difference(lastLogged) < _unknownWordDedupWindow) {
+  if (lastLogged != null &&
+      now.difference(lastLogged) < _unknownWordDedupWindow) {
     return false;
   }
 
@@ -277,7 +280,10 @@ Future<Response> _convertHandler(Request request) async {
           // Unknown word - extract a window of text for context
           final start = (i - 4).clamp(0, rawTokens.length);
           final end = (i + 5).clamp(0, rawTokens.length);
-          final contextSnippet = rawTokens.sublist(start, end).map((t) => t.text).join();
+          final contextSnippet = rawTokens
+              .sublist(start, end)
+              .map((t) => t.text)
+              .join();
 
           // Only accept and log strictly Cyrillic text
           if (CyrillicValidator.isCyrillicWord(token.text)) {
@@ -322,16 +328,22 @@ Future<Response> _contributeHandler(Request request) async {
     final auth = request.context['auth'] as AuthContext?;
 
     if (cyrillic == null || cyrillic.trim().isEmpty) {
-      return Response.badRequest(body: jsonEncode({'error': 'cyrillic is required'}));
+      return Response.badRequest(
+        body: jsonEncode({'error': 'cyrillic is required'}),
+      );
     }
     if (!CyrillicValidator.isCyrillicWord(cyrillic)) {
       return Response.badRequest(
-        body: jsonEncode({'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)'}),
+        body: jsonEncode({
+          'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)',
+        }),
         headers: {'content-type': 'application/json'},
       );
     }
     if (menksoft == null || menksoft.trim().isEmpty) {
-      return Response.badRequest(body: jsonEncode({'error': 'menksoft is required'}));
+      return Response.badRequest(
+        body: jsonEncode({'error': 'menksoft is required'}),
+      );
     }
 
     _db.addSuggestion(
@@ -342,12 +354,17 @@ Future<Response> _contributeHandler(Request request) async {
     );
 
     return Response.ok(
-      jsonEncode({'success': true, 'message': 'Suggestion submitted for review'}),
+      jsonEncode({
+        'success': true,
+        'message': 'Suggestion submitted for review',
+      }),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
     print('Error in /contribute: $e');
-    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
   }
 }
 
@@ -363,7 +380,10 @@ Future<Response> _exportCsvHandler(Request request) async {
   for (final row in rows) {
     final cyrillic = (row['cyrillic'] as String).replaceAll('"', '""');
     final menksoft = (row['menksoft_code'] as String).replaceAll('"', '""');
-    final explanation = ((row['explanation'] as String?) ?? '').replaceAll('"', '""');
+    final explanation = ((row['explanation'] as String?) ?? '').replaceAll(
+      '"',
+      '""',
+    );
     final isPrimary = row['is_primary'] as int;
     csv.writeln('"$cyrillic","$menksoft","$explanation",$isPrimary');
   }
@@ -389,7 +409,9 @@ Future<Response> _exportJsonHandler(Request request) async {
 }
 
 Future<Response> _adminDbDownloadHandler(Request request) async {
-  final tempFile = File('${Directory.systemTemp.path}/db_backup_${DateTime.now().millisecondsSinceEpoch}.db');
+  final tempFile = File(
+    '${Directory.systemTemp.path}/db_backup_${DateTime.now().millisecondsSinceEpoch}.db',
+  );
   try {
     _db.createBackupSnapshot(tempFile.path);
     final bytes = await tempFile.readAsBytes();
@@ -442,7 +464,10 @@ Future<Response> _adminDbSeedHandler(Request request) async {
       } catch (_) {}
     }
 
-    final url = customUrl ?? Platform.environment['OLD_APP_URL'] ?? 'https://cyrillic.suragch.dev/api/collections/words/records';
+    final url =
+        customUrl ??
+        Platform.environment['OLD_APP_URL'] ??
+        'https://cyrillic.suragch.dev/api/collections/words/records';
     final result = await _db.seedFromOldApp(
       baseUrl: url,
       onProgress: (msg) => print('[AdminSeed] $msg'),
@@ -462,9 +487,14 @@ Future<Response> _adminDbSeedHandler(Request request) async {
 // Admin / Moderator Handlers
 
 Future<Response> _adminMissingHandler(Request request) async {
-  final limit = int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
-  final minFrequency = int.tryParse(request.url.queryParameters['min_frequency'] ?? '1') ?? 1;
-  final results = _db.getTopUnknownWords(limit: limit, minFrequency: minFrequency);
+  final limit =
+      int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
+  final minFrequency =
+      int.tryParse(request.url.queryParameters['min_frequency'] ?? '1') ?? 1;
+  final results = _db.getTopUnknownWords(
+    limit: limit,
+    minFrequency: minFrequency,
+  );
   return Response.ok(
     jsonEncode({'missing': results}),
     headers: {'content-type': 'application/json'},
@@ -472,7 +502,8 @@ Future<Response> _adminMissingHandler(Request request) async {
 }
 
 Future<Response> _adminSuggestionsHandler(Request request) async {
-  final limit = int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
+  final limit =
+      int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
   final results = _db.getPendingSuggestions(limit: limit);
   return Response.ok(
     jsonEncode({'suggestions': results}),
@@ -513,7 +544,8 @@ Future<Response> _adminApproveHandler(Request request) async {
     final explanation = json['explanation'] as String?;
 
     final auth = request.context['auth'] as AuthContext?;
-    final verifiedBy = auth?.user?.id ??
+    final verifiedBy =
+        auth?.user?.id ??
         auth?.user?.getStringValue('email') ??
         json['moderatorId'] as String? ??
         'moderator';
@@ -530,7 +562,9 @@ Future<Response> _adminApproveHandler(Request request) async {
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
   }
 }
 
@@ -542,7 +576,8 @@ Future<Response> _adminRejectHandler(Request request) async {
     final reason = json['reason'] as String?;
 
     final auth = request.context['auth'] as AuthContext?;
-    final reviewedBy = auth?.user?.id ??
+    final reviewedBy =
+        auth?.user?.id ??
         auth?.user?.getStringValue('email') ??
         json['moderatorId'] as String? ??
         'moderator';
@@ -553,7 +588,9 @@ Future<Response> _adminRejectHandler(Request request) async {
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
   }
 }
 
@@ -565,11 +602,14 @@ Future<Response> _adminRejectMissingHandler(Request request) async {
     final reason = (json['reason'] as String?)?.trim() ?? 'rejected';
 
     if (cyrillic.isEmpty) {
-      return Response.badRequest(body: jsonEncode({'error': 'Cyrillic word is required'}));
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Cyrillic word is required'}),
+      );
     }
 
     final auth = request.context['auth'] as AuthContext?;
-    final reviewedBy = auth?.user?.id ??
+    final reviewedBy =
+        auth?.user?.id ??
         auth?.user?.getStringValue('email') ??
         json['moderatorId'] as String? ??
         'moderator';
@@ -581,7 +621,9 @@ Future<Response> _adminRejectMissingHandler(Request request) async {
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
   }
 }
 
@@ -604,29 +646,34 @@ Future<Response> _adminAddWordHandler(Request request) async {
     );
 
     // Also remove from unknown_logs if it was there
-    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
-      cyrillic.trim(),
-      cyrillic.trim().toLowerCase(),
-    ]);
+    _db.db.execute(
+      'DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?',
+      [cyrillic.trim(), cyrillic.trim().toLowerCase()],
+    );
 
     return Response.ok(
       jsonEncode({'success': true, 'wordId': wordId}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(body: jsonEncode({'error': 'Invalid request: $e'}));
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
   }
 }
 
 Future<Response> _adminAddModeratorHandler(Request request) async {
   try {
-    final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    final body =
+        jsonDecode(await request.readAsString()) as Map<String, dynamic>;
     final email = (body['email'] as String?)?.trim() ?? '';
     final password = (body['password'] as String?) ?? '';
 
     if (email.isEmpty || password.length < 8) {
       return Response.badRequest(
-        body: jsonEncode({'error': 'Email and password (min 8 characters) are required'}),
+        body: jsonEncode({
+          'error': 'Email and password (min 8 characters) are required',
+        }),
         headers: {'content-type': 'application/json'},
       );
     }
@@ -639,26 +686,36 @@ Future<Response> _adminAddModeratorHandler(Request request) async {
 
     RecordModel? createdRecord;
     try {
-      createdRecord = await pb.collection('_superusers').create(body: {
-        'email': email,
-        'password': password,
-        'passwordConfirm': password,
-      });
+      createdRecord = await pb
+          .collection('_superusers')
+          .create(
+            body: {
+              'email': email,
+              'password': password,
+              'passwordConfirm': password,
+            },
+          );
     } catch (_) {
-      createdRecord = await pb.collection('users').create(body: {
-        'email': email,
-        'password': password,
-        'passwordConfirm': password,
-        'role': 'moderator',
-        'emailVisibility': true,
-        'verified': true,
-      });
+      createdRecord = await pb
+          .collection('users')
+          .create(
+            body: {
+              'email': email,
+              'password': password,
+              'passwordConfirm': password,
+              'role': 'moderator',
+              'emailVisibility': true,
+              'verified': true,
+            },
+          );
     }
 
     return Response.ok(
       jsonEncode({
         'success': true,
-        'email': createdRecord.getStringValue('email').isNotEmpty ? createdRecord.getStringValue('email') : email,
+        'email': createdRecord.getStringValue('email').isNotEmpty
+            ? createdRecord.getStringValue('email')
+            : email,
         'id': createdRecord.id,
       }),
       headers: {'content-type': 'application/json'},
@@ -677,7 +734,10 @@ Middleware payloadLimitMiddleware({int maxBytes = 10 * 1024 * 1024}) {
       if (request.contentLength != null && request.contentLength! > maxBytes) {
         return Response(
           413,
-          body: jsonEncode({'error': 'Payload exceeds maximum limit of ${maxBytes ~/ (1024 * 1024)}MB'}),
+          body: jsonEncode({
+            'error':
+                'Payload exceeds maximum limit of ${maxBytes ~/ (1024 * 1024)}MB',
+          }),
           headers: {'content-type': 'application/json'},
         );
       }
@@ -691,18 +751,24 @@ Middleware corsMiddleware() {
   return (Handler handler) {
     return (Request request) async {
       if (request.method == 'OPTIONS') {
-        return Response.ok('', headers: {
+        return Response.ok(
+          '',
+          headers: {
+            'Access-Control-Allow-Origin': origin,
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers':
+                'Origin, Content-Type, Authorization',
+          },
+        );
+      }
+      final response = await handler(request);
+      return response.change(
+        headers: {
           'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
-        });
-      }
-      final response = await handler(request);
-      return response.change(headers: {
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
-      });
+        },
+      );
     };
   };
 }
@@ -716,10 +782,15 @@ void main(List<String> args) async {
   // Auto-seed if database has 0 words and AUTO_SEED is set to true
   final autoSeed = Platform.environment['AUTO_SEED'] == 'true';
   if (autoSeed && _db.getWordCount() == 0) {
-    final url = Platform.environment['OLD_APP_URL'] ?? 'https://cyrillic.suragch.dev/api/collections/words/records';
+    final url =
+        Platform.environment['OLD_APP_URL'] ??
+        'https://cyrillic.suragch.dev/api/collections/words/records';
     print('AUTO_SEED=true and database is empty. Seeding from $url...');
     try {
-      final stats = await _db.seedFromOldApp(baseUrl: url, onProgress: (m) => print('[AutoSeed] $m'));
+      final stats = await _db.seedFromOldApp(
+        baseUrl: url,
+        onProgress: (m) => print('[AutoSeed] $m'),
+      );
       print('Auto-seeding completed: $stats');
     } catch (e) {
       print('Auto-seeding error: $e');

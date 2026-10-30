@@ -29,7 +29,9 @@ class DesktopDialogFrame extends StatelessWidget {
         color: Colors.transparent,
         child: Container(
           width: maxWidth,
-          constraints: maxHeight != null ? BoxConstraints(maxHeight: maxHeight!) : null,
+          constraints: maxHeight != null
+              ? BoxConstraints(maxHeight: maxHeight!)
+              : null,
           margin: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: DesktopTheme.panelBackground,
@@ -90,7 +92,10 @@ class DesktopDialogFrame extends StatelessWidget {
               // Dialog Action Footer
               if (actions != null && actions!.isNotEmpty)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: const BoxDecoration(
                     color: DesktopTheme.panelHeaderBackground,
                     border: Border(

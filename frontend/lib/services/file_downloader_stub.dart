@@ -4,9 +4,12 @@ import 'package:flutter/foundation.dart';
 /// Desktop / Non-web implementation of file downloading
 void downloadFileFromBytes(List<int> bytes, String filename, String mimeType) {
   try {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
     final downloadsDir = Directory('$home/Downloads');
-    final targetDir = downloadsDir.existsSync() ? downloadsDir : Directory.current;
+    final targetDir = downloadsDir.existsSync()
+        ? downloadsDir
+        : Directory.current;
     final file = File('${targetDir.path}/$filename');
     file.writeAsBytesSync(bytes);
     debugPrint('File saved to: ${file.path}');

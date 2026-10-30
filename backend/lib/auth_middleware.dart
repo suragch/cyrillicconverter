@@ -23,19 +23,31 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
       }
 
       if (token == null || token.isEmpty) {
-        return innerHandler(request.change(context: {'auth': const AuthContext()}));
+        return innerHandler(
+          request.change(context: {'auth': const AuthContext()}),
+        );
       }
 
       // Allow test moderator token if set in environment (for unit & integration tests)
       final testModToken = Platform.environment['TEST_MODERATOR_TOKEN'];
-      if (testModToken != null && testModToken.isNotEmpty && token == testModToken) {
-        return innerHandler(request.change(context: {
-          'auth': AuthContext(
-            user: RecordModel({'id': 'test-moderator', 'email': 'moderator@test.com', 'role': 'moderator'}),
-            isModerator: true,
-            token: token,
+      if (testModToken != null &&
+          testModToken.isNotEmpty &&
+          token == testModToken) {
+        return innerHandler(
+          request.change(
+            context: {
+              'auth': AuthContext(
+                user: RecordModel({
+                  'id': 'test-moderator',
+                  'email': 'moderator@test.com',
+                  'role': 'moderator',
+                }),
+                isModerator: true,
+                token: token,
+              ),
+            },
           ),
-        }));
+        );
       }
 
       try {
@@ -54,23 +66,33 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
         }
 
         if (authRecord == null) {
-          return await innerHandler(request.change(context: {'auth': const AuthContext()}));
+          return await innerHandler(
+            request.change(context: {'auth': const AuthContext()}),
+          );
         }
 
         final user = authRecord.record;
-        final role = user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
+        final role =
+            user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
         // Superusers or designated moderators/admins have moderator privileges
-        final isModerator = isSuperuser || role == 'moderator' || role == 'admin';
+        final isModerator =
+            isSuperuser || role == 'moderator' || role == 'admin';
 
-        return await innerHandler(request.change(context: {
-          'auth': AuthContext(
-            user: user,
-            isModerator: isModerator,
-            token: authRecord.token,
+        return await innerHandler(
+          request.change(
+            context: {
+              'auth': AuthContext(
+                user: user,
+                isModerator: isModerator,
+                token: authRecord.token,
+              ),
+            },
           ),
-        }));
+        );
       } catch (e) {
-        return innerHandler(request.change(context: {'auth': const AuthContext()}));
+        return innerHandler(
+          request.change(context: {'auth': const AuthContext()}),
+        );
       }
     };
   };

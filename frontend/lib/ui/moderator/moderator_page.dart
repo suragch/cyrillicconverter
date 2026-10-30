@@ -89,15 +89,21 @@ class _ModeratorPageState extends State<ModeratorPage> {
     });
 
     try {
-      final missingRes = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/missing?limit=100&min_frequency=$_minFrequency'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 8));
+      final missingRes = await http
+          .get(
+            Uri.parse(
+              '${widget.serverUrl}/admin/missing?limit=100&min_frequency=$_minFrequency',
+            ),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
 
-      final suggRes = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/suggestions?limit=100'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 8));
+      final suggRes = await http
+          .get(
+            Uri.parse('${widget.serverUrl}/admin/suggestions?limit=100'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
 
       if (missingRes.statusCode == 200 && suggRes.statusCode == 200) {
         final missingData = jsonDecode(missingRes.body);
@@ -114,7 +120,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
             _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
           }
           if (_missingIndex >= _missingWords.length) {
-            _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
+            _missingIndex = _missingWords.isEmpty
+                ? 0
+                : _missingWords.length - 1;
           }
         });
 
@@ -124,7 +132,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
         _checkWordForMissing();
       } else {
         setState(() {
-          _error = 'Өгөгдөл татахад алдаа: ${missingRes.statusCode} / ${suggRes.statusCode}';
+          _error =
+              'Өгөгдөл татахад алдаа: ${missingRes.statusCode} / ${suggRes.statusCode}';
         });
       }
     } catch (e) {
@@ -141,31 +150,45 @@ class _ModeratorPageState extends State<ModeratorPage> {
   Future<void> _downloadDatabaseSnapshot() async {
     setState(() => _isDownloadingDb = true);
     try {
-      final res = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/db/download'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 40));
+      final res = await http
+          .get(
+            Uri.parse('${widget.serverUrl}/admin/db/download'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 40));
 
       if (res.statusCode == 200) {
         final dateStr = DateTime.now().toIso8601String().split('T').first;
         final filename = 'cyrillic_dictionary_full_$dateStr.db';
-        downloadFileFromBytes(res.bodyBytes, filename, 'application/vnd.sqlite3');
+        downloadFileFromBytes(
+          res.bodyBytes,
+          filename,
+          'application/vnd.sqlite3',
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Бүх бааз (.db) амжилттай татагдлаа.')),
+            const SnackBar(
+              content: Text('Бүх бааз (.db) амжилттай татагдлаа.'),
+            ),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Бааз татахад алдаа гарлаа: ${res.statusCode}'), backgroundColor: DesktopTheme.danger),
+            SnackBar(
+              content: Text('Бааз татахад алдаа гарлаа: ${res.statusCode}'),
+              backgroundColor: DesktopTheme.danger,
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+          SnackBar(
+            content: Text('Холболтын алдаа: $e'),
+            backgroundColor: DesktopTheme.danger,
+          ),
         );
       }
     } finally {
@@ -204,31 +227,43 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
     setState(() => _isSyncing = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/db/seed'),
-        headers: _headers,
-      ).timeout(const Duration(minutes: 5));
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/db/seed'),
+            headers: _headers,
+          )
+          .timeout(const Duration(minutes: 5));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final stats = data['stats'];
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Амжилттай синк хийлээ: ${stats?['imported']} шинэ үг нэмэгдсэн.')),
+            SnackBar(
+              content: Text(
+                'Амжилттай синк хийлээ: ${stats?['imported']} шинэ үг нэмэгдсэн.',
+              ),
+            ),
           );
           _loadData();
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Синк хийхэд алдаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
+            SnackBar(
+              content: Text('Синк хийхэд алдаа: ${res.body}'),
+              backgroundColor: DesktopTheme.danger,
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+          SnackBar(
+            content: Text('Холболтын алдаа: $e'),
+            backgroundColor: DesktopTheme.danger,
+          ),
         );
       }
     } finally {
@@ -265,10 +300,14 @@ class _ModeratorPageState extends State<ModeratorPage> {
     });
 
     try {
-      final res = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 5));
+      final res = await http
+          .get(
+            Uri.parse(
+              '${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}',
+            ),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -310,17 +349,24 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String? note = (current['context'] as String?)?.trim();
 
     final exists = _currentWordCheckResult?['exists'] == true;
-    final definitions = (_currentWordCheckResult?['definitions'] as List?) ?? [];
+    final definitions =
+        (_currentWordCheckResult?['definitions'] as List?) ?? [];
 
     // Check if duplicate of an existing definition
-    final alreadyIdentical = definitions.any((d) => (d['menksoft'] as String?)?.trim() == menksoft.trim());
+    final alreadyIdentical = definitions.any(
+      (d) => (d['menksoft'] as String?)?.trim() == menksoft.trim(),
+    );
     if (alreadyIdentical) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => DesktopDialogFrame(
           title: 'Аль хэдийн бүртгэгдсэн байна',
           maxWidth: 420,
-          leadingIcon: const Icon(Icons.info_outline, size: 18, color: DesktopTheme.warning),
+          leadingIcon: const Icon(
+            Icons.info_outline,
+            size: 18,
+            color: DesktopTheme.warning,
+          ),
           content: Text(
             '"$cyrillic" үгэнд энэхүү босоо бичлэг толь бичигт аль хэдийн байна.\n'
             'Та давхардуулж нэмэхдээ итгэлтэй байна уу?',
@@ -354,7 +400,11 @@ class _ModeratorPageState extends State<ModeratorPage> {
         builder: (ctx) => DesktopDialogFrame(
           title: 'Олон утгатай үг (Homonym)',
           maxWidth: 440,
-          leadingIcon: const Icon(Icons.warning_amber_rounded, size: 18, color: DesktopTheme.warning),
+          leadingIcon: const Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: DesktopTheme.warning,
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -371,8 +421,13 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 style: const TextStyle(fontSize: 13),
                 decoration: const InputDecoration(
                   labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
-                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: DesktopTheme.roundedSmall,
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
                 onSubmitted: (val) => Navigator.pop(ctx, val.trim()),
               ),
@@ -432,13 +487,19 @@ class _ModeratorPageState extends State<ModeratorPage> {
         _advanceQueue();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
+          SnackBar(
+            content: Text('Алдаа гарлаа: ${res.body}'),
+            backgroundColor: DesktopTheme.danger,
+          ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+        SnackBar(
+          content: Text('Холболтын алдаа: $e'),
+          backgroundColor: DesktopTheme.danger,
+        ),
       );
     }
   }
@@ -464,13 +525,19 @@ class _ModeratorPageState extends State<ModeratorPage> {
         _advanceQueue();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
+          SnackBar(
+            content: Text('Алдаа гарлаа: ${res.body}'),
+            backgroundColor: DesktopTheme.danger,
+          ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+        SnackBar(
+          content: Text('Холболтын алдаа: $e'),
+          backgroundColor: DesktopTheme.danger,
+        ),
       );
     }
   }
@@ -498,28 +565,29 @@ class _ModeratorPageState extends State<ModeratorPage> {
         initialExplanation: current['context'] as String?,
         serverUrl: widget.serverUrl,
         authToken: widget.authToken,
-        onSave: ({
-          required String cyrillic,
-          required String menksoft,
-          String? explanation,
-          required bool andApprove,
-        }) async {
-          if (andApprove) {
-            await _executeApprove(
-              id: current['id'] as int,
-              cyrillic: cyrillic,
-              menksoft: menksoft,
-              explanation: explanation,
-            );
-          } else {
-            setState(() {
-              current['cyrillic'] = cyrillic;
-              current['menksoft_code'] = menksoft;
-              current['context'] = explanation;
-            });
-            _checkWordForCurrent();
-          }
-        },
+        onSave:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? explanation,
+              required bool andApprove,
+            }) async {
+              if (andApprove) {
+                await _executeApprove(
+                  id: current['id'] as int,
+                  cyrillic: cyrillic,
+                  menksoft: menksoft,
+                  explanation: explanation,
+                );
+              } else {
+                setState(() {
+                  current['cyrillic'] = cyrillic;
+                  current['menksoft_code'] = menksoft;
+                  current['context'] = explanation;
+                });
+                _checkWordForCurrent();
+              }
+            },
       ),
     );
   }
@@ -551,10 +619,14 @@ class _ModeratorPageState extends State<ModeratorPage> {
     });
 
     try {
-      final res = await http.get(
-        Uri.parse('${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}'),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 5));
+      final res = await http
+          .get(
+            Uri.parse(
+              '${widget.serverUrl}/admin/words/check?cyrillic=${Uri.encodeComponent(cyrillic)}',
+            ),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -604,19 +676,27 @@ class _ModeratorPageState extends State<ModeratorPage> {
         setState(() {
           _missingWords.removeAt(_missingIndex);
           if (_missingIndex >= _missingWords.length) {
-            _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
+            _missingIndex = _missingWords.isEmpty
+                ? 0
+                : _missingWords.length - 1;
           }
         });
         _checkWordForMissing();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Алдаа гарлаа: ${res.body}'), backgroundColor: DesktopTheme.danger),
+          SnackBar(
+            content: Text('Алдаа гарлаа: ${res.body}'),
+            backgroundColor: DesktopTheme.danger,
+          ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Холболтын алдаа: $e'), backgroundColor: DesktopTheme.danger),
+        SnackBar(
+          content: Text('Холболтын алдаа: $e'),
+          backgroundColor: DesktopTheme.danger,
+        ),
       );
     }
   }
@@ -640,8 +720,11 @@ class _ModeratorPageState extends State<ModeratorPage> {
     if (!mounted) return;
     if (res.statusCode == 200) {
       setState(() {
-        _missingWords.removeWhere((item) =>
-            (item['cyrillic'] as String?)?.trim().toLowerCase() == cyrillic.trim().toLowerCase());
+        _missingWords.removeWhere(
+          (item) =>
+              (item['cyrillic'] as String?)?.trim().toLowerCase() ==
+              cyrillic.trim().toLowerCase(),
+        );
         if (_missingIndex >= _missingWords.length) {
           _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
         }
@@ -674,7 +757,11 @@ class _ModeratorPageState extends State<ModeratorPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => DesktopDialogFrame(
           title: 'Шинэ модератор нэмэх',
-          leadingIcon: const Icon(Icons.person_add_alt_1_outlined, size: 18, color: DesktopTheme.primary),
+          leadingIcon: const Icon(
+            Icons.person_add_alt_1_outlined,
+            size: 18,
+            color: DesktopTheme.primary,
+          ),
           maxWidth: 440,
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -692,8 +779,13 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 decoration: const InputDecoration(
                   labelText: 'И-мэйл хаяг',
                   hintText: 'moderator@example.com',
-                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: DesktopTheme.roundedSmall,
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -703,8 +795,13 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 style: const TextStyle(fontSize: 13),
                 decoration: const InputDecoration(
                   labelText: 'Нууц үг (дор хаяж 8 тэмдэгт)',
-                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: DesktopTheme.roundedSmall,
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -714,13 +811,24 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 style: const TextStyle(fontSize: 13),
                 decoration: const InputDecoration(
                   labelText: 'Нууц үг баталгаажуулах',
-                  border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: DesktopTheme.roundedSmall,
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               if (dialogError != null) ...[
                 const SizedBox(height: 10),
-                Text(dialogError!, style: const TextStyle(fontSize: 12, color: DesktopTheme.danger)),
+                Text(
+                  dialogError!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: DesktopTheme.danger,
+                  ),
+                ),
               ],
             ],
           ),
@@ -741,15 +849,23 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       final confirmPassword = confirmPasswordController.text;
 
                       if (email.isEmpty || !email.contains('@')) {
-                        setDialogState(() => dialogError = 'Зөв и-мэйл хаяг оруулна уу');
+                        setDialogState(
+                          () => dialogError = 'Зөв и-мэйл хаяг оруулна уу',
+                        );
                         return;
                       }
                       if (password.length < 8) {
-                        setDialogState(() => dialogError = 'Нууц үг дор хаяж 8 тэмдэгт байх ёстой');
+                        setDialogState(
+                          () => dialogError =
+                              'Нууц үг дор хаяж 8 тэмдэгт байх ёстой',
+                        );
                         return;
                       }
                       if (password != confirmPassword) {
-                        setDialogState(() => dialogError = 'Нууц үг хоорондоо таарахгүй байна');
+                        setDialogState(
+                          () =>
+                              dialogError = 'Нууц үг хоорондоо таарахгүй байна',
+                        );
                         return;
                       }
 
@@ -776,7 +892,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           navigator.pop();
                           messenger.showSnackBar(
                             SnackBar(
-                              content: Text('Модератор амжилттай бүртгэгдлээ: $email'),
+                              content: Text(
+                                'Модератор амжилттай бүртгэгдлээ: $email',
+                              ),
                               backgroundColor: DesktopTheme.success,
                             ),
                           );
@@ -784,7 +902,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           final errData = jsonDecode(res.body);
                           setDialogState(() {
                             isSubmitting = false;
-                            dialogError = errData['error']?.toString() ?? 'Бүртгэхэд алдаа гарлаа';
+                            dialogError =
+                                errData['error']?.toString() ??
+                                'Бүртгэхэд алдаа гарлаа';
                           });
                         }
                       } catch (e) {
@@ -815,19 +935,23 @@ class _ModeratorPageState extends State<ModeratorPage> {
       // --- Suggestions Tab Shortcuts ---
       if (_suggestions.isEmpty) return KeyEventResult.ignored;
 
-      if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1) {
+      if (key == LogicalKeyboardKey.digit1 ||
+          key == LogicalKeyboardKey.numpad1) {
         _handleApproveCurrent();
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) {
+      } else if (key == LogicalKeyboardKey.digit2 ||
+          key == LogicalKeyboardKey.numpad2) {
         _handleRejectCurrent('Кирилл бичгийн алдаатай');
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) {
+      } else if (key == LogicalKeyboardKey.digit3 ||
+          key == LogicalKeyboardKey.numpad3) {
         _handleRejectCurrent('Кирилл үг биш');
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.keyE) {
         _openEditDialog();
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.arrowRight) {
+      } else if (key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.arrowRight) {
         _skipCurrent();
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.arrowLeft) {
@@ -840,16 +964,21 @@ class _ModeratorPageState extends State<ModeratorPage> {
       final current = _missingWords[_missingIndex];
       final cyrillic = current['cyrillic'] as String;
 
-      if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1 || key == LogicalKeyboardKey.keyE) {
+      if (key == LogicalKeyboardKey.digit1 ||
+          key == LogicalKeyboardKey.numpad1 ||
+          key == LogicalKeyboardKey.keyE) {
         _openDefineMissingDialog(cyrillic);
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) {
+      } else if (key == LogicalKeyboardKey.digit2 ||
+          key == LogicalKeyboardKey.numpad2) {
         _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай');
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) {
+      } else if (key == LogicalKeyboardKey.digit3 ||
+          key == LogicalKeyboardKey.numpad3) {
         _handleRejectMissing(cyrillic, 'Кирилл үг биш');
         return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.arrowRight) {
+      } else if (key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.arrowRight) {
         _skipMissing();
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.arrowLeft) {
@@ -877,12 +1006,19 @@ class _ModeratorPageState extends State<ModeratorPage> {
             // Content Area
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : _error != null
-                      ? Center(child: Text(_error!, style: const TextStyle(color: DesktopTheme.danger)))
-                      : _activeQueueTab == 0
-                          ? _buildSingleSuggestionReviewTab()
-                          : _buildSingleMissingWordReviewTab(),
+                  ? Center(
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: DesktopTheme.danger),
+                      ),
+                    )
+                  : _activeQueueTab == 0
+                  ? _buildSingleSuggestionReviewTab()
+                  : _buildSingleMissingWordReviewTab(),
             ),
           ],
         ),
@@ -936,9 +1072,22 @@ class _ModeratorPageState extends State<ModeratorPage> {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Товчлуур: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: DesktopTheme.textSecondary)),
-                Text('[1] Батлах  [2] Алдаатай  [3] Үг биш  [E] Засах  [Space] Алгасах',
-                    style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: DesktopTheme.textSecondary)),
+                Text(
+                  'Товчлуур: ',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: DesktopTheme.textSecondary,
+                  ),
+                ),
+                Text(
+                  '[1] Батлах  [2] Алдаатай  [3] Үг биш  [E] Засах  [Space] Алгасах',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: DesktopTheme.textSecondary,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1024,7 +1173,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: isActive ? DesktopTheme.secondarySurface : Colors.transparent,
+            color: isActive
+                ? DesktopTheme.secondarySurface
+                : Colors.transparent,
             borderRadius: DesktopTheme.roundedSmall,
             border: Border.all(
               color: isActive ? DesktopTheme.borderMedium : Colors.transparent,
@@ -1037,7 +1188,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
               Icon(
                 icon,
                 size: 14,
-                color: isActive ? DesktopTheme.primary : DesktopTheme.textSecondary,
+                color: isActive
+                    ? DesktopTheme.primary
+                    : DesktopTheme.textSecondary,
               ),
               const SizedBox(width: 6),
               Text(
@@ -1045,14 +1198,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                  color: isActive ? DesktopTheme.textPrimary : DesktopTheme.textSecondary,
+                  color: isActive
+                      ? DesktopTheme.textPrimary
+                      : DesktopTheme.textSecondary,
                 ),
               ),
               const SizedBox(width: 6),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: isActive ? DesktopTheme.primary : DesktopTheme.borderMedium,
+                  color: isActive
+                      ? DesktopTheme.primary
+                      : DesktopTheme.borderMedium,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -1084,20 +1241,15 @@ class _ModeratorPageState extends State<ModeratorPage> {
         child: DropdownButton<int>(
           value: _minFrequency,
           isDense: true,
-          style: const TextStyle(fontSize: 12, color: DesktopTheme.textPrimary, fontWeight: FontWeight.w500),
+          style: const TextStyle(
+            fontSize: 12,
+            color: DesktopTheme.textPrimary,
+            fontWeight: FontWeight.w500,
+          ),
           items: const [
-            DropdownMenuItem(
-              value: 2,
-              child: Text('Давтамж ≥ 2 (Зөвлөмжтэй)'),
-            ),
-            DropdownMenuItem(
-              value: 1,
-              child: Text('Бүгд (≥ 1)'),
-            ),
-            DropdownMenuItem(
-              value: 5,
-              child: Text('Их давтамжтай (≥ 5)'),
-            ),
+            DropdownMenuItem(value: 2, child: Text('Давтамж ≥ 2 (Зөвлөмжтэй)')),
+            DropdownMenuItem(value: 1, child: Text('Бүгд (≥ 1)')),
+            DropdownMenuItem(value: 5, child: Text('Их давтамжтай (≥ 5)')),
           ],
           onChanged: (val) {
             if (val != null) _changeMinFrequency(val);
@@ -1131,7 +1283,11 @@ class _ModeratorPageState extends State<ModeratorPage> {
             child: Text(
               'Өмнөх түүх: Энэ үгийг өмнө нь $count удаа татгалзсан байна ($reason)'
               '${reviewer != null ? ' • Шүүгч: $reviewer' : ''}',
-              style: const TextStyle(fontSize: 11, color: Colors.brown, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.brown,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -1153,16 +1309,27 @@ class _ModeratorPageState extends State<ModeratorPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle_outline, size: 56, color: DesktopTheme.success),
+              const Icon(
+                Icons.check_circle_outline,
+                size: 56,
+                color: DesktopTheme.success,
+              ),
               const SizedBox(height: 12),
               const Text(
                 'Бүх саналыг хянаж дууслаа!',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: DesktopTheme.textPrimary),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: DesktopTheme.textPrimary,
+                ),
               ),
               const SizedBox(height: 6),
               const Text(
                 'Хянагдах санал одоогоор байхгүй байна.',
-                style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: DesktopTheme.textSecondary,
+                ),
               ),
               const SizedBox(height: 16),
               DesktopButton(
@@ -1186,8 +1353,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final latin = LatinIme.menksoftToLatin(menksoft);
 
     final exists = _currentWordCheckResult?['exists'] == true;
-    final definitions = (_currentWordCheckResult?['definitions'] as List?) ?? [];
-    final rejectionHistory = (_currentWordCheckResult?['rejectionHistory'] as List?) ?? [];
+    final definitions =
+        (_currentWordCheckResult?['definitions'] as List?) ?? [];
+    final rejectionHistory =
+        (_currentWordCheckResult?['rejectionHistory'] as List?) ?? [];
 
     return Center(
       child: SingleChildScrollView(
@@ -1210,15 +1379,25 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: DesktopTheme.secondarySurface,
                         borderRadius: DesktopTheme.roundedSmall,
-                        border: Border.all(color: DesktopTheme.border, width: 1),
+                        border: Border.all(
+                          color: DesktopTheme.border,
+                          width: 1,
+                        ),
                       ),
                       child: Text(
                         'Санал ${_currentIndex + 1} / ${_suggestions.length}',
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: DesktopTheme.textPrimary),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: DesktopTheme.textPrimary,
+                        ),
                       ),
                     ),
                     Row(
@@ -1227,14 +1406,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           icon: Icons.arrow_back,
                           tooltip: 'Өмнөх санал (←)',
                           size: 16,
-                          onPressed: _currentIndex > 0 ? () => _goToIndex(_currentIndex - 1) : null,
+                          onPressed: _currentIndex > 0
+                              ? () => _goToIndex(_currentIndex - 1)
+                              : null,
                         ),
                         const SizedBox(width: 4),
                         DesktopIconButton(
                           icon: Icons.arrow_forward,
                           tooltip: 'Дараах санал (Space / →)',
                           size: 16,
-                          onPressed: _currentIndex < _suggestions.length - 1 ? () => _goToIndex(_currentIndex + 1) : null,
+                          onPressed: _currentIndex < _suggestions.length - 1
+                              ? () => _goToIndex(_currentIndex + 1)
+                              : null,
                         ),
                       ],
                     ),
@@ -1254,7 +1437,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       decoration: BoxDecoration(
                         color: DesktopTheme.canvas,
                         borderRadius: DesktopTheme.roundedSmall,
-                        border: Border.all(color: DesktopTheme.borderMedium, width: 1),
+                        border: Border.all(
+                          color: DesktopTheme.borderMedium,
+                          width: 1,
+                        ),
                       ),
                       alignment: Alignment.topCenter,
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1295,9 +1481,14 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                 size: 14,
                                 tooltip: 'Кирилл үгийг хуулах',
                                 onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: cyrillic));
+                                  Clipboard.setData(
+                                    ClipboardData(text: cyrillic),
+                                  );
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Кирилл үг хуулагдлаа'), duration: Duration(seconds: 1)),
+                                    const SnackBar(
+                                      content: Text('Кирилл үг хуулагдлаа'),
+                                      duration: Duration(seconds: 1),
+                                    ),
                                   );
                                 },
                               ),
@@ -1306,13 +1497,22 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              const Text('Латин галиг: ', style: DesktopTheme.caption),
+                              const Text(
+                                'Латин галиг: ',
+                                style: DesktopTheme.caption,
+                              ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: DesktopTheme.secondarySurface,
                                   borderRadius: BorderRadius.circular(3),
-                                  border: Border.all(color: DesktopTheme.border, width: 1),
+                                  border: Border.all(
+                                    color: DesktopTheme.border,
+                                    width: 1,
+                                  ),
                                 ),
                                 child: Text(
                                   latin.isEmpty ? '—' : latin,
@@ -1327,7 +1527,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          const Text('Тэмдэглэл / Тайлбар:', style: DesktopTheme.caption),
+                          const Text(
+                            'Тэмдэглэл / Тайлбар:',
+                            style: DesktopTheme.caption,
+                          ),
                           const SizedBox(height: 4),
                           Container(
                             width: double.infinity,
@@ -1335,18 +1538,26 @@ class _ModeratorPageState extends State<ModeratorPage> {
                             decoration: BoxDecoration(
                               color: DesktopTheme.canvas,
                               borderRadius: DesktopTheme.roundedSmall,
-                              border: Border.all(color: DesktopTheme.border, width: 1),
+                              border: Border.all(
+                                color: DesktopTheme.border,
+                                width: 1,
+                              ),
                             ),
                             child: Text(
-                              (contextText != null && contextText.trim().isNotEmpty)
+                              (contextText != null &&
+                                      contextText.trim().isNotEmpty)
                                   ? contextText
                                   : 'Тэмдэглэл байхгүй',
                               style: TextStyle(
                                 fontSize: 13,
-                                color: (contextText != null && contextText.trim().isNotEmpty)
+                                color:
+                                    (contextText != null &&
+                                        contextText.trim().isNotEmpty)
                                     ? DesktopTheme.textPrimary
                                     : DesktopTheme.textMuted,
-                                fontStyle: (contextText != null && contextText.trim().isNotEmpty)
+                                fontStyle:
+                                    (contextText != null &&
+                                        contextText.trim().isNotEmpty)
                                     ? FontStyle.normal
                                     : FontStyle.italic,
                               ),
@@ -1369,14 +1580,26 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Толь бичгийн төлөв:', style: DesktopTheme.caption),
+                          const Text(
+                            'Толь бичгийн төлөв:',
+                            style: DesktopTheme.caption,
+                          ),
                           const SizedBox(height: 6),
                           if (_isCheckingCurrentWord)
                             const Row(
                               children: [
-                                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
                                 SizedBox(width: 6),
-                                Text('Толь бичиг шалгаж байна...', style: DesktopTheme.caption),
+                                Text(
+                                  'Толь бичиг шалгаж байна...',
+                                  style: DesktopTheme.caption,
+                                ),
                               ],
                             )
                           else if (exists)
@@ -1385,19 +1608,30 @@ class _ModeratorPageState extends State<ModeratorPage> {
                               decoration: BoxDecoration(
                                 color: DesktopTheme.warningSurface,
                                 borderRadius: DesktopTheme.roundedSmall,
-                                border: Border.all(color: DesktopTheme.warningBorder, width: 1),
+                                border: Border.all(
+                                  color: DesktopTheme.warningBorder,
+                                  width: 1,
+                                ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Row(
                                     children: [
-                                      Icon(Icons.warning_amber_rounded, size: 16, color: DesktopTheme.warning),
+                                      Icon(
+                                        Icons.warning_amber_rounded,
+                                        size: 16,
+                                        color: DesktopTheme.warning,
+                                      ),
                                       SizedBox(width: 6),
                                       Expanded(
                                         child: Text(
                                           'Олон утгатай үг (Homonym)',
-                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: DesktopTheme.warning),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: DesktopTheme.warning,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -1405,7 +1639,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                   const SizedBox(height: 4),
                                   Text(
                                     'Тольд одоо ${definitions.length} бичлэг бүртгэлтэй байна. Ялгах тайлбар заавал шаардлагатай.',
-                                    style: const TextStyle(fontSize: 11, color: Colors.brown),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.brown,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1416,16 +1653,27 @@ class _ModeratorPageState extends State<ModeratorPage> {
                               decoration: BoxDecoration(
                                 color: DesktopTheme.successSurface,
                                 borderRadius: DesktopTheme.roundedSmall,
-                                border: Border.all(color: DesktopTheme.successBorder, width: 1),
+                                border: Border.all(
+                                  color: DesktopTheme.successBorder,
+                                  width: 1,
+                                ),
                               ),
                               child: const Row(
                                 children: [
-                                  Icon(Icons.check_circle_outline, size: 15, color: DesktopTheme.success),
+                                  Icon(
+                                    Icons.check_circle_outline,
+                                    size: 15,
+                                    color: DesktopTheme.success,
+                                  ),
                                   SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
                                       'Шинэ кирилл үг (Тольд бүртгэлгүй)',
-                                      style: TextStyle(fontSize: 11, color: DesktopTheme.success, fontWeight: FontWeight.w500),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: DesktopTheme.success,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1454,7 +1702,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       variant: DesktopButtonVariant.primary,
                     ),
                     DesktopButton(
-                      onPressed: () => _handleRejectCurrent('Кирилл бичгийн алдаатай'),
+                      onPressed: () =>
+                          _handleRejectCurrent('Кирилл бичгийн алдаатай'),
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
                       icon: const Icon(Icons.spellcheck, size: 14),
@@ -1505,18 +1754,29 @@ class _ModeratorPageState extends State<ModeratorPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle_outline, size: 56, color: DesktopTheme.success),
+              const Icon(
+                Icons.check_circle_outline,
+                size: 56,
+                color: DesktopTheme.success,
+              ),
               const SizedBox(height: 12),
               Text(
                 _minFrequency > 1
                     ? 'Давтамж ≥ $_minFrequency бүхий дутуу үг олдсонгүй'
                     : 'Бүх дутуу үгийг шалгаж дууслаа!',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: DesktopTheme.textPrimary),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: DesktopTheme.textPrimary,
+                ),
               ),
               const SizedBox(height: 6),
               const Text(
                 'Давтамжийн шүүлтүүрийг өөрчлөх эсвэл дахин шалгана уу.',
-                style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: DesktopTheme.textSecondary,
+                ),
               ),
               const SizedBox(height: 16),
               DesktopButton(
@@ -1538,8 +1798,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final lastSeen = item['last_seen'] as String?;
 
     final exists = _missingWordCheckResult?['exists'] == true;
-    final definitions = (_missingWordCheckResult?['definitions'] as List?) ?? [];
-    final rejectionHistory = (_missingWordCheckResult?['rejectionHistory'] as List?) ?? [];
+    final definitions =
+        (_missingWordCheckResult?['definitions'] as List?) ?? [];
+    final rejectionHistory =
+        (_missingWordCheckResult?['rejectionHistory'] as List?) ?? [];
 
     return Center(
       child: SingleChildScrollView(
@@ -1564,25 +1826,42 @@ class _ModeratorPageState extends State<ModeratorPage> {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: DesktopTheme.secondarySurface,
                             borderRadius: DesktopTheme.roundedSmall,
-                            border: Border.all(color: DesktopTheme.border, width: 1),
+                            border: Border.all(
+                              color: DesktopTheme.border,
+                              width: 1,
+                            ),
                           ),
                           child: Text(
                             'Дутуу үг ${_missingIndex + 1} / ${_missingWords.length}',
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: DesktopTheme.textPrimary),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: DesktopTheme.textPrimary,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: freq > 3 ? DesktopTheme.dangerSurface : DesktopTheme.secondarySurface,
+                            color: freq > 3
+                                ? DesktopTheme.dangerSurface
+                                : DesktopTheme.secondarySurface,
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: freq > 3 ? DesktopTheme.dangerBorder : DesktopTheme.border,
+                              color: freq > 3
+                                  ? DesktopTheme.dangerBorder
+                                  : DesktopTheme.border,
                               width: 1,
                             ),
                           ),
@@ -1591,7 +1870,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
-                              color: freq > 3 ? DesktopTheme.danger : DesktopTheme.textSecondary,
+                              color: freq > 3
+                                  ? DesktopTheme.danger
+                                  : DesktopTheme.textSecondary,
                             ),
                           ),
                         ),
@@ -1603,14 +1884,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           icon: Icons.arrow_back,
                           tooltip: 'Өмнөх дутуу үг (←)',
                           size: 16,
-                          onPressed: _missingIndex > 0 ? () => _goToMissingIndex(_missingIndex - 1) : null,
+                          onPressed: _missingIndex > 0
+                              ? () => _goToMissingIndex(_missingIndex - 1)
+                              : null,
                         ),
                         const SizedBox(width: 4),
                         DesktopIconButton(
                           icon: Icons.arrow_forward,
                           tooltip: 'Дараах дутуу үг (Space / →)',
                           size: 16,
-                          onPressed: _missingIndex < _missingWords.length - 1 ? () => _goToMissingIndex(_missingIndex + 1) : null,
+                          onPressed: _missingIndex < _missingWords.length - 1
+                              ? () => _goToMissingIndex(_missingIndex + 1)
+                              : null,
                         ),
                       ],
                     ),
@@ -1638,7 +1923,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: cyrillic));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Кирилл үг хуулагдлаа'), duration: Duration(seconds: 1)),
+                          const SnackBar(
+                            content: Text('Кирилл үг хуулагдлаа'),
+                            duration: Duration(seconds: 1),
+                          ),
                         );
                       },
                     ),
@@ -1648,7 +1936,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 const SizedBox(height: 14),
 
                 // Context sentence
-                const Text('Жишээ өгүүлбэр / хэрэглээ:', style: DesktopTheme.caption),
+                const Text(
+                  'Жишээ өгүүлбэр / хэрэглээ:',
+                  style: DesktopTheme.caption,
+                ),
                 const SizedBox(height: 6),
                 Container(
                   width: double.infinity,
@@ -1664,10 +1955,12 @@ class _ModeratorPageState extends State<ModeratorPage> {
                         : 'Жишээ өгүүлбэр бүртгэгдээгүй байна',
                     style: TextStyle(
                       fontSize: 13,
-                      fontStyle: (lastContext != null && lastContext.trim().isNotEmpty)
+                      fontStyle:
+                          (lastContext != null && lastContext.trim().isNotEmpty)
                           ? FontStyle.italic
                           : FontStyle.normal,
-                      color: (lastContext != null && lastContext.trim().isNotEmpty)
+                      color:
+                          (lastContext != null && lastContext.trim().isNotEmpty)
                           ? DesktopTheme.textPrimary
                           : DesktopTheme.textMuted,
                     ),
@@ -1680,9 +1973,16 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 if (_isCheckingMissingWord)
                   const Row(
                     children: [
-                      SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                       SizedBox(width: 6),
-                      Text('Толь бичиг шалгаж байна...', style: DesktopTheme.caption),
+                      Text(
+                        'Толь бичиг шалгаж байна...',
+                        style: DesktopTheme.caption,
+                      ),
                     ],
                   )
                 else if (exists)
@@ -1691,19 +1991,36 @@ class _ModeratorPageState extends State<ModeratorPage> {
                     decoration: BoxDecoration(
                       color: DesktopTheme.warningSurface,
                       borderRadius: DesktopTheme.roundedSmall,
-                      border: Border.all(color: DesktopTheme.warningBorder, width: 1),
+                      border: Border.all(
+                        color: DesktopTheme.warningBorder,
+                        width: 1,
+                      ),
                     ),
                     child: Text(
                       'ℹ️ Энэ үг толь бичигт ${definitions.length} хувилбартайгаар бүртгэлтэй байна.',
-                      style: const TextStyle(fontSize: 12, color: Colors.brown, fontWeight: FontWeight.w500),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.brown,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   )
                 else
                   const Row(
                     children: [
-                      Icon(Icons.check_circle_outline, size: 15, color: DesktopTheme.success),
+                      Icon(
+                        Icons.check_circle_outline,
+                        size: 15,
+                        color: DesktopTheme.success,
+                      ),
                       SizedBox(width: 6),
-                      Text('Толь бичигт бүртгэлгүй шинэ үг', style: TextStyle(fontSize: 12, color: DesktopTheme.success)),
+                      Text(
+                        'Толь бичигт бүртгэлгүй шинэ үг',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: DesktopTheme.success,
+                        ),
+                      ),
                     ],
                   ),
 
@@ -1711,7 +2028,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
                 if (lastSeen != null) ...[
                   const SizedBox(height: 10),
-                  Text('Сүүлд хайгдсан: ${lastSeen.split('T').first}', style: DesktopTheme.caption),
+                  Text(
+                    'Сүүлд хайгдсан: ${lastSeen.split('T').first}',
+                    style: DesktopTheme.caption,
+                  ),
                 ],
 
                 const Divider(height: 28),
@@ -1730,14 +2050,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       variant: DesktopButtonVariant.primary,
                     ),
                     DesktopButton(
-                      onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай'),
+                      onPressed: () => _handleRejectMissing(
+                        cyrillic,
+                        'Кирилл бичгийн алдаатай',
+                      ),
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
                       icon: const Icon(Icons.spellcheck, size: 14),
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
-                      onPressed: () => _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
+                      onPressed: () =>
+                          _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
                       label: 'Үг биш',
                       shortcutHint: '3',
                       icon: const Icon(Icons.block, size: 14),

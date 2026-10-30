@@ -109,18 +109,22 @@ class _DesktopButtonState extends State<DesktopButton> {
 
     return MouseRegion(
       cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() {
-        _isHovered = false;
-        _isPressed = false;
-      }),
+      onEnter: isEnabled ? (_) => setState(() => _isHovered = true) : null,
+      onExit: isEnabled
+          ? (_) => setState(() {
+              _isHovered = false;
+              _isPressed = false;
+            })
+          : null,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTapDown: isEnabled ? (_) => setState(() => _isPressed = true) : null,
         onTapUp: isEnabled ? (_) => setState(() => _isPressed = false) : null,
-        onTapCancel: () => setState(() => _isPressed = false),
+        onTapCancel: isEnabled
+            ? () => setState(() => _isPressed = false)
+            : null,
         onTap: isEnabled ? widget.onPressed : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
+        child: Container(
           padding: EdgeInsets.symmetric(
             horizontal: horizontalPadding,
             vertical: verticalPadding,
@@ -161,15 +165,17 @@ class _DesktopButtonState extends State<DesktopButton> {
                     child: widget.icon!,
                   ),
                 ),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: widget.isDense ? 12 : 13,
-                  fontWeight: widget.variant == DesktopButtonVariant.primary
-                      ? FontWeight.w600
-                      : FontWeight.w500,
-                  color: fg,
-                  fontFamily: null,
+              SelectionContainer.disabled(
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: widget.isDense ? 12 : 13,
+                    fontWeight: widget.variant == DesktopButtonVariant.primary
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                    color: fg,
+                    fontFamily: null,
+                  ),
                 ),
               ),
               if (widget.shortcutHint != null) ...[
@@ -241,13 +247,13 @@ class _DesktopIconButtonState extends State<DesktopIconButton> {
 
     final child = MouseRegion(
       cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+      onEnter: isEnabled ? (_) => setState(() => _isHovered = true) : null,
+      onExit: isEnabled ? (_) => setState(() => _isHovered = false) : null,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          padding: const EdgeInsets.all(6),
+        child: Container(
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: _isHovered && isEnabled
                 ? DesktopTheme.hoverBackground

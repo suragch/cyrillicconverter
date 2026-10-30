@@ -437,9 +437,16 @@ void main() {
         await tester.tap(find.text('Товчлуур харах'));
         await tester.pumpAndSettle();
 
-        // Keyboard should now be visible
+        // Keyboard should now be visible on the right side of the Mongolian preview
         expect(find.text('Товчлуур нуух'), findsOneWidget);
         expect(find.text('Эгшиг (Vowels)'), findsOneWidget);
+
+        final previewFinder = find.byType(MongolText);
+        final keyboardFinder = find.text('Эгшиг (Vowels)');
+        expect(
+          tester.getTopLeft(keyboardFinder).dx,
+          greaterThan(tester.getTopLeft(previewFinder).dx),
+        );
 
         // Tap hide keyboard button
         await tester.tap(find.text('Товчлуур нуух'));
@@ -566,6 +573,145 @@ void main() {
         // Should automatically convert to Latin and trim outer whitespace
         final textFieldWidget = tester.widget<TextField>(latinField);
         expect(textFieldWidget.controller?.text, 'mqNgql');
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog Latin field does not have hint text when selected/focused',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Үг нэмэх',
+                        initialCyrillic: 'ном',
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              explanation,
+                            }) async {},
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        final latinFieldFinder = find.widgetWithText(TextField, 'Латин галиг');
+        expect(latinFieldFinder, findsOneWidget);
+
+        // Autofocused, so it has focus and hint text should be null
+        TextField latinField = tester.widget<TextField>(latinFieldFinder);
+        expect(latinField.decoration?.hintText, isNull);
+
+        // Unfocus
+        latinField.focusNode?.unfocus();
+        await tester.pumpAndSettle();
+
+        latinField = tester.widget<TextField>(latinFieldFinder);
+        expect(
+          latinField.decoration?.hintText,
+          'q=o, w=wa, v=u, o=oe, u=ue, E=ee',
+        );
+      },
+    );
+
+    testWidgets(
+      'DesktopButton inside SelectionArea uses SystemMouseCursors.click and disables selection',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SelectionArea(
+                child: DesktopButton(onPressed: () {}, label: 'Тест товч'),
+              ),
+            ),
+          ),
+        );
+
+        // Find the MouseRegion within DesktopButton
+        final mouseRegionFinder = find.descendant(
+          of: find.byType(DesktopButton),
+          matching: find.byType(MouseRegion),
+        );
+        expect(mouseRegionFinder, findsOneWidget);
+        final mouseRegion = tester.widget<MouseRegion>(mouseRegionFinder);
+        expect(mouseRegion.cursor, SystemMouseCursors.click);
+
+        // SelectionContainer should be disabled around the button
+        final selectionContainerFinder = find.descendant(
+          of: find.byType(DesktopButton),
+          matching: find.byType(SelectionContainer),
+        );
+        expect(selectionContainerFinder, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog supports vertically scrollable long text/abbreviations',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Урт товчлол нэмэх',
+                        initialCyrillic: 'БНМАУ',
+                        initialLatin: 'b.n.m.a.u.',
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              explanation,
+                            }) async {},
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        // Title bar should contain the keyboard button
+        expect(find.text('Товчлуур харах'), findsOneWidget);
+
+        final scrollbarFinder = find.byType(Scrollbar);
+        expect(scrollbarFinder, findsOneWidget);
+
+        // Mongol preview should have a vertical SingleChildScrollView inside the Scrollbar
+        final verticalScrollFinder = find.descendant(
+          of: scrollbarFinder,
+          matching: find.byType(SingleChildScrollView),
+        );
+        expect(verticalScrollFinder, findsOneWidget);
+        final scrollWidget = tester.widget<SingleChildScrollView>(
+          verticalScrollFinder,
+        );
+        expect(scrollWidget.scrollDirection, Axis.vertical);
+
+        // MongolText should be rendered inside
+        expect(find.byType(MongolText), findsOneWidget);
       },
     );
 

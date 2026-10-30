@@ -7,6 +7,7 @@ class DesktopDialogFrame extends StatelessWidget {
   final Widget? leadingIcon;
   final Widget content;
   final List<Widget>? actions;
+  final List<Widget>? headerActions;
   final double maxWidth;
   final double? maxHeight;
   final VoidCallback? onClose;
@@ -17,6 +18,7 @@ class DesktopDialogFrame extends StatelessWidget {
     this.leadingIcon,
     required this.content,
     this.actions,
+    this.headerActions,
     this.maxWidth = 520,
     this.maxHeight,
     this.onClose,
@@ -71,6 +73,10 @@ class DesktopDialogFrame extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (headerActions != null && headerActions!.isNotEmpty) ...[
+                      ...headerActions!,
+                      const SizedBox(width: 8),
+                    ],
                     DesktopIconButton(
                       icon: Icons.close,
                       size: 16,
@@ -84,7 +90,7 @@ class DesktopDialogFrame extends StatelessWidget {
               // Dialog Body
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
                   child: content,
                 ),
               ),

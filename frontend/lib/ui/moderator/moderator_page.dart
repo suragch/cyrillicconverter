@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 
-import '../../services/file_downloader.dart';
 import '../../services/latin_ime.dart';
 import '../desktop/components/desktop_button.dart';
 import '../desktop/components/desktop_dialog.dart';
@@ -47,8 +46,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
   int _minFrequency = 2; // Default to frequency >= 2
 
   bool _isLoading = false;
-  bool _isDownloadingDb = false;
-  bool _isSyncing = false;
   String? _error;
 
   final FocusNode _keyboardFocusNode = FocusNode();
@@ -74,7 +71,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Future<void> _changeMinFrequency(int newMinFreq) async {
-    if (_minFrequency == newMinFreq) return;
+    if (_minFrequency == newMinFreq) {
+      return;
+    }
     setState(() {
       _minFrequency = newMinFreq;
       _missingIndex = 0;
@@ -147,132 +146,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
     }
   }
 
-  Future<void> _downloadDatabaseSnapshot() async {
-    setState(() => _isDownloadingDb = true);
-    try {
-      final res = await http
-          .get(
-            Uri.parse('${widget.serverUrl}/admin/db/download'),
-            headers: _headers,
-          )
-          .timeout(const Duration(seconds: 40));
-
-      if (res.statusCode == 200) {
-        final dateStr = DateTime.now().toIso8601String().split('T').first;
-        final filename = 'cyrillic_dictionary_full_$dateStr.db';
-        downloadFileFromBytes(
-          res.bodyBytes,
-          filename,
-          'application/vnd.sqlite3',
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Бүх бааз (.db) амжилттай татагдлаа.'),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Бааз татахад алдаа гарлаа: ${res.statusCode}'),
-              backgroundColor: DesktopTheme.danger,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Холболтын алдаа: $e'),
-            backgroundColor: DesktopTheme.danger,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isDownloadingDb = false);
-      }
-    }
-  }
-
-  Future<void> _syncFromOldApp() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => DesktopDialogFrame(
-        title: 'Хуучин системээс татах (Seed)',
-        content: const Text(
-          'cyrillic.suragch.dev системээс бүх үгсийг татаж шинэ бааз руу нэмэх үү?\n(Давхардсан үгсийг автоматаар алгасна)',
-          style: DesktopTheme.body,
-        ),
-        actions: [
-          DesktopButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            label: 'Болих',
-            variant: DesktopButtonVariant.secondary,
-          ),
-          const SizedBox(width: 8),
-          DesktopButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            label: 'Эхлүүлэх',
-            variant: DesktopButtonVariant.primary,
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _isSyncing = true);
-    try {
-      final res = await http
-          .post(
-            Uri.parse('${widget.serverUrl}/admin/db/seed'),
-            headers: _headers,
-          )
-          .timeout(const Duration(minutes: 5));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final stats = data['stats'];
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Амжилттай синк хийлээ: ${stats?['imported']} шинэ үг нэмэгдсэн.',
-              ),
-            ),
-          );
-          _loadData();
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Синк хийхэд алдаа: ${res.body}'),
-              backgroundColor: DesktopTheme.danger,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Холболтын алдаа: $e'),
-            backgroundColor: DesktopTheme.danger,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
-      }
-    }
-  }
-
   // --- Suggestions Queue Helpers ---
 
   Future<void> _checkWordForCurrent() async {
@@ -341,7 +214,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Future<void> _handleApproveCurrent() async {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) return;
+    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+      return;
+    }
     final current = _suggestions[_currentIndex];
     final id = current['id'] as int;
     final cyrillic = current['cyrillic'] as String;
@@ -389,10 +264,14 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ],
         ),
       );
-      if (proceed != true) return;
+      if (proceed != true) {
+        return;
+      }
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (exists && (note == null || note.isEmpty)) {
       final inputController = TextEditingController();
       final addedNote = await showDialog<String>(
@@ -451,7 +330,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         ),
       );
 
-      if (addedNote == null) return;
+      if (addedNote == null) {
+        return;
+      }
       note = addedNote.isEmpty ? null : addedNote;
     }
 
@@ -482,7 +363,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         }),
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (res.statusCode == 200) {
         _advanceQueue();
       } else {
@@ -494,7 +377,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Холболтын алдаа: $e'),
@@ -505,7 +390,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Future<void> _handleRejectCurrent(String reason) async {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) return;
+    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+      return;
+    }
     final current = _suggestions[_currentIndex];
     final id = current['id'] as int;
 
@@ -520,7 +407,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         }),
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (res.statusCode == 200) {
         _advanceQueue();
       } else {
@@ -532,7 +421,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Холболтын алдаа: $e'),
@@ -554,7 +445,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   void _openEditDialog() {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) return;
+    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+      return;
+    }
     final current = _suggestions[_currentIndex];
 
     showDialog(
@@ -671,7 +564,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         }),
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (res.statusCode == 200) {
         setState(() {
           _missingWords.removeAt(_missingIndex);
@@ -691,7 +586,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Холболтын алдаа: $e'),
@@ -717,7 +614,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         'moderatorId': widget.moderatorId,
       }),
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (res.statusCode == 200) {
       setState(() {
         _missingWords.removeWhere(
@@ -745,195 +644,19 @@ class _ModeratorPageState extends State<ModeratorPage> {
     );
   }
 
-  void _showAddModeratorDialog() {
-    final emailController = TextEditingController();
-    final passwordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-    bool isSubmitting = false;
-    String? dialogError;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => DesktopDialogFrame(
-          title: 'Шинэ модератор нэмэх',
-          leadingIcon: const Icon(
-            Icons.person_add_alt_1_outlined,
-            size: 18,
-            color: DesktopTheme.primary,
-          ),
-          maxWidth: 440,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Энд шинэ модератор эсвэл админ хэрэглэгчийн бүртгэлийг үүсгэнэ үү.',
-                style: DesktopTheme.body,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: emailController,
-                autofocus: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'И-мэйл хаяг',
-                  hintText: 'moderator@example.com',
-                  border: OutlineInputBorder(
-                    borderRadius: DesktopTheme.roundedSmall,
-                  ),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'Нууц үг (дор хаяж 8 тэмдэгт)',
-                  border: OutlineInputBorder(
-                    borderRadius: DesktopTheme.roundedSmall,
-                  ),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPasswordController,
-                obscureText: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'Нууц үг баталгаажуулах',
-                  border: OutlineInputBorder(
-                    borderRadius: DesktopTheme.roundedSmall,
-                  ),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-              ),
-              if (dialogError != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  dialogError!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: DesktopTheme.danger,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            DesktopButton(
-              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-              label: 'Цуцлах',
-              variant: DesktopButtonVariant.secondary,
-              isDense: true,
-            ),
-            const SizedBox(width: 8),
-            DesktopButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () async {
-                      final email = emailController.text.trim();
-                      final password = passwordController.text;
-                      final confirmPassword = confirmPasswordController.text;
-
-                      if (email.isEmpty || !email.contains('@')) {
-                        setDialogState(
-                          () => dialogError = 'Зөв и-мэйл хаяг оруулна уу',
-                        );
-                        return;
-                      }
-                      if (password.length < 8) {
-                        setDialogState(
-                          () => dialogError =
-                              'Нууц үг дор хаяж 8 тэмдэгт байх ёстой',
-                        );
-                        return;
-                      }
-                      if (password != confirmPassword) {
-                        setDialogState(
-                          () =>
-                              dialogError = 'Нууц үг хоорондоо таарахгүй байна',
-                        );
-                        return;
-                      }
-
-                      setDialogState(() {
-                        isSubmitting = true;
-                        dialogError = null;
-                      });
-
-                      final messenger = ScaffoldMessenger.of(context);
-                      final navigator = Navigator.of(ctx);
-
-                      try {
-                        final res = await http.post(
-                          Uri.parse('${widget.serverUrl}/admin/moderators'),
-                          headers: _headers,
-                          body: jsonEncode({
-                            'email': email,
-                            'password': password,
-                          }),
-                        );
-
-                        if (!mounted) return;
-                        if (res.statusCode == 200) {
-                          navigator.pop();
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Модератор амжилттай бүртгэгдлээ: $email',
-                              ),
-                              backgroundColor: DesktopTheme.success,
-                            ),
-                          );
-                        } else {
-                          final errData = jsonDecode(res.body);
-                          setDialogState(() {
-                            isSubmitting = false;
-                            dialogError =
-                                errData['error']?.toString() ??
-                                'Бүртгэхэд алдаа гарлаа';
-                          });
-                        }
-                      } catch (e) {
-                        setDialogState(() {
-                          isSubmitting = false;
-                          dialogError = 'Холболтын алдаа: $e';
-                        });
-                      }
-                    },
-              label: 'Нэмэх',
-              variant: DesktopButtonVariant.primary,
-              isLoading: isSubmitting,
-              isDense: true,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// Single-key keyboard navigation handler
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) {
+      return KeyEventResult.ignored;
+    }
 
     final key = event.logicalKey;
 
     if (_activeQueueTab == 0) {
       // --- Suggestions Tab Shortcuts ---
-      if (_suggestions.isEmpty) return KeyEventResult.ignored;
+      if (_suggestions.isEmpty) {
+        return KeyEventResult.ignored;
+      }
 
       if (key == LogicalKeyboardKey.digit1 ||
           key == LogicalKeyboardKey.numpad1) {
@@ -955,12 +678,16 @@ class _ModeratorPageState extends State<ModeratorPage> {
         _skipCurrent();
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.arrowLeft) {
-        if (_currentIndex > 0) _goToIndex(_currentIndex - 1);
+        if (_currentIndex > 0) {
+          _goToIndex(_currentIndex - 1);
+        }
         return KeyEventResult.handled;
       }
     } else {
       // --- Missing Words Tab Shortcuts ---
-      if (_missingWords.isEmpty) return KeyEventResult.ignored;
+      if (_missingWords.isEmpty) {
+        return KeyEventResult.ignored;
+      }
       final current = _missingWords[_missingIndex];
       final cyrillic = current['cyrillic'] as String;
 
@@ -982,7 +709,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         _skipMissing();
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.arrowLeft) {
-        if (_missingIndex > 0) _goToMissingIndex(_missingIndex - 1);
+        if (_missingIndex > 0) {
+          _goToMissingIndex(_missingIndex - 1);
+        }
         return KeyEventResult.handled;
       }
     }
@@ -1058,84 +787,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ],
 
           const Spacer(),
-
-          // Hotkey cheatsheet
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: DesktopTheme.secondarySurface,
-              borderRadius: DesktopTheme.roundedSmall,
-              border: Border.all(color: DesktopTheme.border, width: 1),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Товчлуур: ',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: DesktopTheme.textSecondary,
-                  ),
-                ),
-                Text(
-                  '[1] Батлах  [2] Алдаатай  [3] Үг биш  [E] Засах  [Space] Алгасах',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    color: DesktopTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Download DB button
-          DesktopButton(
-            onPressed: _isDownloadingDb ? null : _downloadDatabaseSnapshot,
-            label: 'Бааз татах (.db)',
-            variant: DesktopButtonVariant.secondary,
-            isLoading: _isDownloadingDb,
-            isDense: true,
-          ),
-
-          // Add Moderator Button
-          DesktopButton(
-            onPressed: _showAddModeratorDialog,
-            label: 'Админ нэмэх',
-            variant: DesktopButtonVariant.secondary,
-            isDense: true,
-          ),
-
-          const SizedBox(width: 8),
-
-          // Add Word Manual Button
-          DesktopButton(
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => AddEditWordDialog(
-                  title: 'Шинэ үг толь бичигт нэмэх',
-                  submitButtonText: 'Нэмэх',
-                  onSubmit: _addWord,
-                ),
-              );
-            },
-            label: 'Үг нэмэх',
-            variant: DesktopButtonVariant.secondary,
-            isDense: true,
-          ),
-
-          const SizedBox(width: 8),
-
-          DesktopIconButton(
-            icon: Icons.cloud_download_outlined,
-            tooltip: 'Хуучин системээс татах (Seed)',
-            size: 16,
-            onPressed: _isSyncing ? null : _syncFromOldApp,
-          ),
-
-          const SizedBox(width: 8),
 
           DesktopIconButton(
             icon: Icons.refresh,
@@ -1249,7 +900,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
             DropdownMenuItem(value: 5, child: Text('Их давтамжтай (≥ 5)')),
           ],
           onChanged: (val) {
-            if (val != null) _changeMinFrequency(val);
+            if (val != null) {
+              _changeMinFrequency(val);
+            }
           },
         ),
       ),
@@ -1257,7 +910,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Widget _buildRejectionHistoryBadge(List<dynamic> history) {
-    if (history.isEmpty) return const SizedBox.shrink();
+    if (history.isEmpty) {
+      return const SizedBox.shrink();
+    }
     final first = history.first as Map<String, dynamic>;
     final reason = first['reason'] as String? ?? 'Татгалзсан';
     final count = history.length;

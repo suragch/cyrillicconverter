@@ -20,8 +20,6 @@ class DesktopHeader extends StatelessWidget {
   final Map<String, dynamic>? currentUser;
   final VoidCallback onLoginPressed;
   final VoidCallback onLogoutPressed;
-  final VoidCallback onHelpPressed;
-  final VoidCallback? onDownloadDictionary;
 
   const DesktopHeader({
     super.key,
@@ -38,8 +36,6 @@ class DesktopHeader extends StatelessWidget {
     this.currentUser,
     required this.onLoginPressed,
     required this.onLogoutPressed,
-    required this.onHelpPressed,
-    this.onDownloadDictionary,
   });
 
   @override
@@ -88,12 +84,14 @@ class DesktopHeader extends StatelessWidget {
                         tab: DesktopNavTab.converter,
                         label: 'Хөрвүүлэгч',
                       ),
-                      const SizedBox(width: 4),
-                      _buildNavTab(
-                        tab: DesktopNavTab.moderator,
-                        label: isCompact ? 'Шүүгч' : 'Шүүгч / Модератор',
-                        badgeCount: moderatorBadgeCount,
-                      ),
+                      if (isLoggedIn) ...[
+                        const SizedBox(width: 4),
+                        _buildNavTab(
+                          tab: DesktopNavTab.moderator,
+                          label: 'Шүүгч',
+                          badgeCount: moderatorBadgeCount,
+                        ),
+                      ],
                       const SizedBox(width: 4),
                       _buildNavTab(
                         tab: DesktopNavTab.dictionary,
@@ -185,28 +183,13 @@ class DesktopHeader extends StatelessWidget {
                               ),
                             ],
                             onChanged: (val) {
-                              if (val != null) onEncodingChanged(val);
+                              if (val != null) {
+                                onEncodingChanged(val);
+                              }
                             },
                           ),
                         ),
                       ),
-
-                      const SizedBox(width: 6),
-                      DesktopIconButton(
-                        icon: Icons.help_outline,
-                        tooltip: 'Товчлуурын хослол',
-                        size: 16,
-                        onPressed: onHelpPressed,
-                      ),
-                      if (onDownloadDictionary != null) ...[
-                        const SizedBox(width: 4),
-                        DesktopIconButton(
-                          icon: Icons.download_outlined,
-                          tooltip: 'Толь бичиг татах (CSV)',
-                          size: 16,
-                          onPressed: onDownloadDictionary,
-                        ),
-                      ],
 
                       const SizedBox(width: 8),
                       _buildVerticalDivider(),

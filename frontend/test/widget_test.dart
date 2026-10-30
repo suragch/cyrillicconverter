@@ -6,6 +6,8 @@ import 'package:frontend/services/latin_ime.dart';
 import 'package:frontend/token.dart';
 import 'package:frontend/ui/desktop/components/desktop_button.dart';
 import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
+import 'package:frontend/ui/dictionary/dictionary_browse_view.dart';
+import 'package:frontend/ui/moderator/moderator_page.dart';
 import 'package:mongol/mongol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -283,6 +285,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Нэвтрэх'), findsOneWidget);
+      expect(find.text('Шүүгч'), findsNothing);
       expect(find.text('Модератор'), findsNothing);
     });
 
@@ -338,41 +341,6 @@ void main() {
       expect(find.text('Хайх'), findsOneWidget);
     });
 
-    testWidgets('Shortcuts help button opens keyboard cheatsheet modal', (
-      tester,
-    ) async {
-      tester.view.devicePixelRatio = 1.0;
-      tester.view.physicalSize = const Size(1280, 800);
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
-      });
-
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
-
-      // Tap help button
-      await tester.tap(find.byIcon(Icons.help_outline));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Товчлуурын хослолууд (Keyboard Shortcuts)'),
-        findsOneWidget,
-      );
-      expect(find.text('⌘ / Ctrl + Enter'), findsOneWidget);
-      expect(find.text('Хаах'), findsOneWidget);
-
-      // Close modal
-      await tester.tap(find.text('Хаах'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Товчлуурын хослолууд (Keyboard Shortcuts)'),
-        findsNothing,
-      );
-    });
-
     testWidgets('Clicking Login button opens desktop login dialog', (
       tester,
     ) async {
@@ -401,23 +369,31 @@ void main() {
       expect(find.text('Системд нэвтрэх'), findsNothing);
     });
 
-    testWidgets('Header renders public dictionary download button', (
-      tester,
-    ) async {
-      tester.view.devicePixelRatio = 1.0;
-      tester.view.physicalSize = const Size(1280, 800);
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
-      });
+    testWidgets(
+      'Main header does not render download button; Dictionary tab renders download button',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 800);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
 
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
 
-      // Download button with download icon must be rendered
-      expect(find.byIcon(Icons.download_outlined), findsWidgets);
-    });
+        // Main header does not render download icon
+        expect(find.byIcon(Icons.download_outlined), findsNothing);
+
+        // Tap dictionary tab
+        await tester.tap(find.text('Толь бичиг'));
+        await tester.pumpAndSettle();
+
+        // Download button is available in the dictionary view
+        expect(find.text('Толь татах (CSV)'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'AddEditWordDialog hides keyboard by default and toggles on button press',
@@ -623,5 +599,61 @@ void main() {
       expect(enabledButton.onPressed, isNotNull);
       expect(enabledButton.label, 'Хөрвүүлэх');
     });
+
+    testWidgets(
+      'DictionaryBrowseView renders guest-friendly suggest button and hides moderator controls when not logged in',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: DictionaryBrowseView(
+                serverUrl: 'http://localhost:8080',
+                authToken: null,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Search toolbar is present
+        expect(find.text('Толь бичиг хайх & шалгах'), findsOneWidget);
+        expect(find.text('Хайх'), findsOneWidget);
+
+        // Moderator exclusive controls are not shown
+        expect(find.text('Шинэ хувилбар нэмэх'), findsNothing);
+        expect(find.text('Толь бичигт бүртгэх'), findsNothing);
+        expect(find.textContaining('Өмнөх түүх:'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ModeratorPage renders streamlined subheader with queue tabs and refresh',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: ModeratorPage(
+                serverUrl: 'http://localhost:8080',
+                authToken: 'mock-token',
+                moderatorId: 'mod@example.com',
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // Queue switcher tabs and refresh button are rendered
+        expect(find.text('Хянагдах саналууд'), findsOneWidget);
+        expect(find.text('Дутуу үгс'), findsOneWidget);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
+
+        // Obsolete / redundant controls are not rendered
+        expect(find.text('Бааз татах (.db)'), findsNothing);
+        expect(find.text('Админ нэмэх'), findsNothing);
+        expect(find.text('Үг нэмэх'), findsNothing);
+        expect(find.textContaining('Товчлуур:'), findsNothing);
+        expect(find.byIcon(Icons.cloud_download_outlined), findsNothing);
+      },
+    );
   });
 }

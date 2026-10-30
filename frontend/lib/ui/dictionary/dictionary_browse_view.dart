@@ -40,6 +40,9 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
     super.dispose();
   }
 
+  bool get _isModerator =>
+      widget.authToken != null && widget.authToken!.isNotEmpty;
+
   Map<String, String> get _headers {
     final headers = {'Content-Type': 'application/json'};
     if (widget.authToken != null) {
@@ -116,6 +119,48 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
               if (res.statusCode == 200) {
                 _searchWord(cyrillic);
+              } else {
+                throw Exception(res.body);
+              }
+            },
+      ),
+    );
+  }
+
+  Future<void> _suggestWord(String cyrillic) async {
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Шинэ үгийн санал илгээх: "$cyrillic"',
+        initialCyrillic: cyrillic,
+        submitButtonText: 'Санал илгээх',
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? explanation,
+            }) async {
+              final res = await http.post(
+                Uri.parse('${widget.serverUrl}/contribute'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'cyrillic': cyrillic,
+                  'menksoft': menksoft,
+                  'context': explanation ?? '',
+                }),
+              );
+
+              if (res.statusCode == 200) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '"$cyrillic" үгийн санал модераторын дараалалд амжилттай нэмэгдлээ.',
+                      ),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               } else {
                 throw Exception(res.body);
               }
@@ -353,15 +398,17 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                 ],
               ),
               DesktopButton(
-                onPressed: () => _addNewDefinition(searchedWord),
-                label: 'Шинэ хувилбар нэмэх',
+                onPressed: _isModerator
+                    ? () => _addNewDefinition(searchedWord)
+                    : () => _suggestWord(searchedWord),
+                label: _isModerator ? 'Шинэ хувилбар нэмэх' : 'Санал илгээх',
                 variant: DesktopButtonVariant.secondary,
                 isDense: true,
               ),
             ],
           ),
 
-          if (rejectionHistory.isNotEmpty) ...[
+          if (_isModerator && rejectionHistory.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -411,8 +458,12 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                     ),
                     const SizedBox(height: 12),
                     DesktopButton(
-                      onPressed: () => _addNewDefinition(searchedWord),
-                      label: 'Толь бичигт бүртгэх',
+                      onPressed: _isModerator
+                          ? () => _addNewDefinition(searchedWord)
+                          : () => _suggestWord(searchedWord),
+                      label: _isModerator
+                          ? 'Толь бичигт бүртгэх'
+                          : 'Санал илгээх',
                       variant: DesktopButtonVariant.primary,
                     ),
                   ],

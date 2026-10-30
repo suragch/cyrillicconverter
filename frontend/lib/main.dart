@@ -1023,111 +1023,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
     );
   }
 
-  void _showShortcutsHelp() {
-    showDialog(
-      context: context,
-      builder: (ctx) => DesktopDialogFrame(
-        title: 'Товчлуурын хослолууд (Keyboard Shortcuts)',
-        maxWidth: 540,
-        leadingIcon: const Icon(
-          Icons.keyboard_outlined,
-          size: 18,
-          color: DesktopTheme.primary,
-        ),
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Хөрвүүлэгч (Converter Workspace)',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: DesktopTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildShortcutRow(
-              '⌘ / Ctrl + Enter',
-              'Эх бичвэрийг монгол бичиг рүү хөрвүүлэх',
-            ),
-            _buildShortcutRow(
-              '⌘ / Ctrl + C',
-              'Сонгосон / бүхэл монгол бичвэрийг хуулах',
-            ),
-            _buildShortcutRow(
-              'A+ / A-',
-              'Босоо үсгийн хэмжээг томосгох / жижигсгэх',
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Шүүгч / Модератор (Moderator Workspace)',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: DesktopTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildShortcutRow(
-              '1',
-              'Санал эсвэл дутуу үгийг зөвшөөрөх / батлах',
-            ),
-            _buildShortcutRow('2', 'Кирилл алдаатай гэж татгалзах'),
-            _buildShortcutRow('3', 'Кирилл үг биш гэж татгалзах'),
-            _buildShortcutRow('E', 'Сонгосон үгийг засах цонх нээх'),
-            _buildShortcutRow('Space эсвэл →', 'Дараах үг рүү алгасах'),
-            _buildShortcutRow('←', 'Өмнөх үг рүү буцах'),
-          ],
-        ),
-        actions: [
-          DesktopButton(
-            onPressed: () => Navigator.pop(ctx),
-            label: 'Хаах',
-            variant: DesktopButtonVariant.secondary,
-            isDense: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildShortcutRow(String keys, String desc) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Container(
-            width: 140,
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            decoration: BoxDecoration(
-              color: DesktopTheme.secondarySurface,
-              borderRadius: DesktopTheme.roundedSmall,
-              border: Border.all(color: DesktopTheme.borderMedium, width: 1),
-            ),
-            child: Text(
-              keys,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              desc,
-              style: const TextStyle(
-                fontSize: 13,
-                color: DesktopTheme.textSecondary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // Shortcuts handler (Cmd+Enter to convert)
@@ -1171,8 +1066,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 currentUser: _currentUser,
                 onLoginPressed: _showLoginDialog,
                 onLogoutPressed: _logout,
-                onHelpPressed: _showShortcutsHelp,
-                onDownloadDictionary: () => _downloadPublicDictionary(),
               ),
 
               // Main Workspace View
@@ -1204,6 +1097,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return _buildConverterWorkspace();
 
       case DesktopNavTab.moderator:
+        if (!_isLoggedIn) {
+          return _buildConverterWorkspace();
+        }
         return ModeratorPage(
           serverUrl: _serverUrl,
           authToken: _authToken,
@@ -1211,7 +1107,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
               _currentUser?['id'] as String? ??
               _currentUser?['email'] as String?,
           onCountChanged: (count) {
-            if (mounted) setState(() => _moderatorQueueCount = count);
+            if (mounted) {
+              setState(() => _moderatorQueueCount = count);
+            }
           },
         );
 
@@ -1469,6 +1367,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       ? () => _copyToClipboard()
                       : null,
                   label: 'Хуулах',
+                  icon: const Icon(Icons.copy, size: 13),
                   shortcutHint: '⌘C',
                   variant: DesktopButtonVariant.secondary,
                   isDense: true,

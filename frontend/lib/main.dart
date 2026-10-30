@@ -59,7 +59,8 @@ class ConverterScreen extends StatefulWidget {
     }
 
     // 1. Record the N-th occurrence of each Cyrillic word in oldTokens and what option value the user picked.
-    final Map<String, ({String selectedValue, int selectedIndex})> selectionByOccurrence = {};
+    final Map<String, ({String selectedValue, int selectedIndex})>
+    selectionByOccurrence = {};
     final Map<String, int> oldWordCounts = {};
 
     for (int i = 0; i < oldTokens.length; i++) {
@@ -157,7 +158,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
   List<Token> _tokens = [];
   List<TokenSpanInfo> _tokenSpanInfos = [];
   final Map<int, int> _selectedOptionIndices = {}; // tokenIndex -> optionIndex
-  final Map<String, String> _localOverrides = {}; // lowercase cyrillic -> menksoft code
+  final Map<String, String> _localOverrides =
+      {}; // lowercase cyrillic -> menksoft code
 
   // Unique session ID generated once per app launch for backend deduplication
   late final String _sessionId = _generateSessionId();
@@ -204,11 +206,16 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   Future<void> _checkServerHealth() async {
     try {
-      final res = await http.get(Uri.parse('$_serverUrl/health')).timeout(const Duration(seconds: 3));
+      final res = await http
+          .get(Uri.parse('$_serverUrl/health'))
+          .timeout(const Duration(seconds: 3));
       if (res.statusCode == 200) {
         if (mounted) setState(() => _serverStatusText = 'Сервер: Хэвийн');
       } else {
-        if (mounted) setState(() => _serverStatusText = 'Сервер: Алдаа (${res.statusCode})');
+        if (mounted)
+          setState(
+            () => _serverStatusText = 'Сервер: Алдаа (${res.statusCode})',
+          );
       }
     } catch (_) {
       if (mounted) setState(() => _serverStatusText = 'Сервер: Холбогдоогүй');
@@ -220,7 +227,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
     final filename = 'mongol_dictionary.$ext';
     final url = '$_serverUrl/export/$ext';
     try {
-      final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 30));
       if (res.statusCode == 200) {
         final mime = isJson ? 'application/json' : 'text/csv';
         downloadFileFromBytes(res.bodyBytes, filename, mime);
@@ -248,20 +257,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
       }
 
       // Validate saved token with server
-      final response = await http.get(
-        Uri.parse('$_serverUrl/auth/me'),
-        headers: {
-          'Authorization': 'Bearer $savedToken',
-        },
-      ).timeout(const Duration(seconds: 5));
+      final response = await http
+          .get(
+            Uri.parse('$_serverUrl/auth/me'),
+            headers: {'Authorization': 'Bearer $savedToken'},
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final user = (data['user'] as Map<String, dynamic>?) ?? {
-          'id': data['id'],
-          'email': data['email'],
-          'role': data['role'],
-        };
+        final user =
+            (data['user'] as Map<String, dynamic>?) ??
+            {'id': data['id'], 'email': data['email'], 'role': data['role']};
         final newToken = data['token'] as String? ?? savedToken;
         if (newToken != savedToken) {
           await prefs.setString(_authTokenStorageKey, newToken);
@@ -297,14 +304,22 @@ class _ConverterScreenState extends State<ConverterScreen> {
   Future<void> _fetchModeratorCount() async {
     if (!_isLoggedIn) return;
     try {
-      final headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer $_authToken'};
-      final res = await http.get(
-        Uri.parse('$_serverUrl/admin/suggestions?limit=1'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 4));
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_authToken',
+      };
+      final res = await http
+          .get(
+            Uri.parse('$_serverUrl/admin/suggestions?limit=1'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final total = data['total'] as int? ?? (data['suggestions'] as List?)?.length ?? 0;
+        final total =
+            data['total'] as int? ??
+            (data['suggestions'] as List?)?.length ??
+            0;
         if (mounted) {
           setState(() => _moderatorQueueCount = total);
         }
@@ -359,7 +374,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 13)),
-        backgroundColor: isError ? DesktopTheme.danger : DesktopTheme.textPrimary,
+        backgroundColor: isError
+            ? DesktopTheme.danger
+            : DesktopTheme.textPrimary,
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.only(bottom: 36, right: 16, left: 16),
@@ -459,7 +476,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
       if (token.type == 'space') {
         text = ' ';
       } else if (token.type == 'delimiter') {
-        text = token.menksoft ?? LatinIme.convertPunctuationToMenksoft(token.original);
+        text =
+            token.menksoft ??
+            LatinIme.convertPunctuationToMenksoft(token.original);
       } else if (token.type == 'word' && token.options.isNotEmpty) {
         final optIdx = _selectedOptionIndices[i] ?? 0;
         final chosen = token.options[optIdx.clamp(0, token.options.length - 1)];
@@ -470,13 +489,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
       final start = currentOffset;
       final end = currentOffset + text.length;
-      newSpans.add(TokenSpanInfo(
-        tokenIndex: i,
-        start: start,
-        end: end,
-        token: token,
-        text: text,
-      ));
+      newSpans.add(
+        TokenSpanInfo(
+          tokenIndex: i,
+          start: start,
+          end: end,
+          token: token,
+          text: text,
+        ),
+      );
       buffer.write(text);
       currentOffset = end;
     }
@@ -513,7 +534,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
     final info = _getTokenAtCharOffset(textPosition.offset);
 
     final MouseCursor newCursor;
-    if (info != null && (info.token.type == 'word' || info.token.type == 'unknown')) {
+    if (info != null &&
+        (info.token.type == 'word' || info.token.type == 'unknown')) {
       newCursor = SystemMouseCursors.click;
       _outputController.setHoveredTokenIndex(info.tokenIndex);
     } else {
@@ -566,9 +588,19 @@ class _ConverterScreenState extends State<ConverterScreen> {
       _showFixDialog(info.token);
     } else if (info.token.type == 'word') {
       if (info.token.options.length > 1) {
-        _showAmbiguityMenu(context, info.tokenIndex, info.token, globalPosition);
+        _showAmbiguityMenu(
+          context,
+          info.tokenIndex,
+          info.token,
+          globalPosition,
+        );
       } else {
-        _showWordActionMenu(context, info.tokenIndex, info.token, globalPosition);
+        _showWordActionMenu(
+          context,
+          info.tokenIndex,
+          info.token,
+          globalPosition,
+        );
       }
     }
   }
@@ -601,7 +633,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
       _syncOutputText();
     });
 
-    _showToast('"$cyrillic" үг шууд солигдож, модераторын дараалалд нэмэгдлээ.');
+    _showToast(
+      '"$cyrillic" үг шууд солигдож, модераторын дараалалд нэмэгдлээ.',
+    );
 
     // 2. Asynchronously submit to remote server for moderator queue
     try {
@@ -653,7 +687,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
     );
   }
 
-  void _showAmbiguityMenu(BuildContext context, int tokenIndex, Token token, Offset position) {
+  void _showAmbiguityMenu(
+    BuildContext context,
+    int tokenIndex,
+    Token token,
+    Offset position,
+  ) {
     final items = <PopupMenuEntry<int>>[];
 
     items.add(
@@ -661,7 +700,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
         enabled: false,
         child: Text(
           'Кирилл: ${token.original}',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+            color: DesktopTheme.textPrimary,
+          ),
         ),
       ),
     );
@@ -687,12 +730,19 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 children: [
                   MongolText(
                     option.menksoft,
-                    style: const TextStyle(fontSize: 22, fontFamily: 'Menksoft'),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontFamily: 'Menksoft',
+                    ),
                   ),
-                  if (option.explanation != null && option.explanation!.isNotEmpty)
+                  if (option.explanation != null &&
+                      option.explanation!.isNotEmpty)
                     Text(
                       option.explanation!,
-                      style: const TextStyle(fontSize: 11, color: DesktopTheme.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: DesktopTheme.textSecondary,
+                      ),
                     ),
                 ],
               ),
@@ -710,7 +760,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
           children: [
             Icon(Icons.flag_outlined, size: 16, color: DesktopTheme.warning),
             SizedBox(width: 8),
-            Text('Алдаа мэдээлэх / Өөр утга нэмэх', style: TextStyle(fontSize: 13)),
+            Text(
+              'Алдаа мэдээлэх / Өөр утга нэмэх',
+              style: TextStyle(fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -718,7 +771,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
     showMenu<int>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
       items: items,
     ).then((selectedIndex) {
       if (selectedIndex == null) return;
@@ -733,16 +791,30 @@ class _ConverterScreenState extends State<ConverterScreen> {
     });
   }
 
-  void _showWordActionMenu(BuildContext context, int tokenIndex, Token token, Offset position) {
+  void _showWordActionMenu(
+    BuildContext context,
+    int tokenIndex,
+    Token token,
+    Offset position,
+  ) {
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
       items: [
         PopupMenuItem<String>(
           enabled: false,
           child: Text(
             'Кирилл: ${token.original}',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+              color: DesktopTheme.textPrimary,
+            ),
           ),
         ),
         const PopupMenuDivider(),
@@ -869,7 +941,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
           return DesktopDialogFrame(
             title: 'Системд нэвтрэх',
             maxWidth: 400,
-            leadingIcon: const Icon(Icons.lock_outline, size: 18, color: DesktopTheme.primary),
+            leadingIcon: const Icon(
+              Icons.lock_outline,
+              size: 18,
+              color: DesktopTheme.primary,
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -886,8 +962,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Имэйл / Нэвтрэх нэр',
                     labelStyle: TextStyle(fontSize: 12),
-                    border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: DesktopTheme.roundedSmall,
+                    ),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -898,8 +979,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Нууц үг',
                     labelStyle: TextStyle(fontSize: 12),
-                    border: OutlineInputBorder(borderRadius: DesktopTheme.roundedSmall),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: DesktopTheme.roundedSmall,
+                    ),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   onSubmitted: (_) {
                     if (!isLoggingIn) doLogin();
@@ -935,25 +1021,49 @@ class _ConverterScreenState extends State<ConverterScreen> {
       builder: (ctx) => DesktopDialogFrame(
         title: 'Товчлуурын хослолууд (Keyboard Shortcuts)',
         maxWidth: 540,
-        leadingIcon: const Icon(Icons.keyboard_outlined, size: 18, color: DesktopTheme.primary),
+        leadingIcon: const Icon(
+          Icons.keyboard_outlined,
+          size: 18,
+          color: DesktopTheme.primary,
+        ),
         content: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
               'Хөрвүүлэгч (Converter Workspace)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: DesktopTheme.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
-            _buildShortcutRow('⌘ / Ctrl + Enter', 'Эх бичвэрийг монгол бичиг рүү хөрвүүлэх'),
-            _buildShortcutRow('⌘ / Ctrl + C', 'Сонгосон / бүхэл монгол бичвэрийг хуулах'),
-            _buildShortcutRow('A+ / A-', 'Босоо үсгийн хэмжээг томосгох / жижигсгэх'),
+            _buildShortcutRow(
+              '⌘ / Ctrl + Enter',
+              'Эх бичвэрийг монгол бичиг рүү хөрвүүлэх',
+            ),
+            _buildShortcutRow(
+              '⌘ / Ctrl + C',
+              'Сонгосон / бүхэл монгол бичвэрийг хуулах',
+            ),
+            _buildShortcutRow(
+              'A+ / A-',
+              'Босоо үсгийн хэмжээг томосгох / жижигсгэх',
+            ),
             const SizedBox(height: 16),
             const Text(
               'Шүүгч / Модератор (Moderator Workspace)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: DesktopTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: DesktopTheme.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
-            _buildShortcutRow('1', 'Санал эсвэл дутуу үгийг зөвшөөрөх / батлах'),
+            _buildShortcutRow(
+              '1',
+              'Санал эсвэл дутуу үгийг зөвшөөрөх / батлах',
+            ),
             _buildShortcutRow('2', 'Кирилл алдаатай гэж татгалзах'),
             _buildShortcutRow('3', 'Кирилл үг биш гэж татгалзах'),
             _buildShortcutRow('E', 'Сонгосон үгийг засах цонх нээх'),
@@ -988,12 +1098,22 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Text(
               keys,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+              ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(desc, style: const TextStyle(fontSize: 13, color: DesktopTheme.textSecondary)),
+            child: Text(
+              desc,
+              style: const TextStyle(
+                fontSize: 13,
+                color: DesktopTheme.textSecondary,
+              ),
+            ),
           ),
         ],
       ),
@@ -1006,7 +1126,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.enter, meta: true): _convert,
-        const SingleActivator(LogicalKeyboardKey.enter, control: true): _convert,
+        const SingleActivator(LogicalKeyboardKey.enter, control: true):
+            _convert,
       },
       child: Focus(
         autofocus: true,
@@ -1047,16 +1168,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
               ),
 
               // Main Workspace View
-              Expanded(
-                child: _buildMainView(),
-              ),
+              Expanded(child: _buildMainView()),
 
               // Bottom Desktop Status Bar (28px)
               DesktopStatusBar(
                 isLoading: _isLoading,
-                wordCount: _tokens.where((t) => t.type == 'word' || t.type == 'unknown').length,
+                wordCount: _tokens
+                    .where((t) => t.type == 'word' || t.type == 'unknown')
+                    .length,
                 charCount: _inputTextController.text.length,
-                homonymCount: _tokens.where((t) => t.type == 'word' && t.options.length > 1).length,
+                homonymCount: _tokens
+                    .where((t) => t.type == 'word' && t.options.length > 1)
+                    .length,
                 unknownCount: _tokens.where((t) => t.type == 'unknown').length,
                 serverStatus: _serverStatusText,
               ),
@@ -1076,7 +1199,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return ModeratorPage(
           serverUrl: _serverUrl,
           authToken: _authToken,
-          moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
+          moderatorId:
+              _currentUser?['id'] as String? ??
+              _currentUser?['email'] as String?,
           onCountChanged: (count) {
             if (mounted) setState(() => _moderatorQueueCount = count);
           },
@@ -1086,7 +1211,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return DictionaryBrowseView(
           serverUrl: _serverUrl,
           authToken: _authToken,
-          moderatorId: _currentUser?['id'] as String? ?? _currentUser?['email'] as String?,
+          moderatorId:
+              _currentUser?['id'] as String? ??
+              _currentUser?['email'] as String?,
           onDownloadDictionary: () => _downloadPublicDictionary(),
         );
     }
@@ -1106,30 +1233,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left Pane: Cyrillic Source Editor
-                    Expanded(
-                      flex: 1,
-                      child: _buildCyrillicSourcePane(),
-                    ),
+                    Expanded(flex: 1, child: _buildCyrillicSourcePane()),
                     const SizedBox(width: 16),
                     // Right Pane: Traditional Mongolian Output
-                    Expanded(
-                      flex: 1,
-                      child: _buildMongolianOutputPane(),
-                    ),
+                    Expanded(flex: 1, child: _buildMongolianOutputPane()),
                   ],
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      flex: 4,
-                      child: _buildCyrillicSourcePane(),
-                    ),
+                    Expanded(flex: 4, child: _buildCyrillicSourcePane()),
                     const SizedBox(height: 12),
-                    Expanded(
-                      flex: 6,
-                      child: _buildMongolianOutputPane(),
-                    ),
+                    Expanded(flex: 6, child: _buildMongolianOutputPane()),
                   ],
                 ),
         );
@@ -1165,7 +1280,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.edit_note, size: 16, color: DesktopTheme.textSecondary),
+                const Icon(
+                  Icons.edit_note,
+                  size: 16,
+                  color: DesktopTheme.textSecondary,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -1224,8 +1343,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   color: DesktopTheme.textPrimary,
                 ),
                 decoration: const InputDecoration(
-                  hintText: 'Кирилл бичвэрээ энд оруулна уу...\nЖишээ: 2026 онд Монгол улсын хүү, төр, гол хоёр утгатай үгс гарна.',
-                  hintStyle: TextStyle(fontSize: 13, color: DesktopTheme.textMuted),
+                  hintText: 'Кирилл бичвэрээ энд оруулна уу...',
+                  hintStyle: TextStyle(
+                    fontSize: 13,
+                    color: DesktopTheme.textMuted,
+                  ),
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -1240,7 +1362,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
               color: DesktopTheme.dangerSurface,
               child: Text(
                 _errorMessage!,
-                style: const TextStyle(fontSize: 12, color: DesktopTheme.danger),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: DesktopTheme.danger,
+                ),
               ),
             ),
 
@@ -1261,7 +1386,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
             child: Row(
               children: [
                 DesktopButton(
-                  onPressed: (_inputTextController.text.trim().isEmpty || _isLoading || !_isConversionDirty)
+                  onPressed:
+                      (_inputTextController.text.trim().isEmpty ||
+                          _isLoading ||
+                          !_isConversionDirty)
                       ? null
                       : () => _convert(),
                   label: (!_isConversionDirty && _lastConvertedText != null)
@@ -1320,7 +1448,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.article_outlined, size: 16, color: DesktopTheme.textSecondary),
+                const Icon(
+                  Icons.article_outlined,
+                  size: 16,
+                  color: DesktopTheme.textSecondary,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -1343,7 +1475,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   const SizedBox(width: 8),
                 ],
                 DesktopButton(
-                  onPressed: _tokens.isNotEmpty ? () => _copyToClipboard() : null,
+                  onPressed: _tokens.isNotEmpty
+                      ? () => _copyToClipboard()
+                      : null,
                   label: 'Хуулах',
                   shortcutHint: '⌘C',
                   icon: const Icon(Icons.copy, size: 13),
@@ -1370,14 +1504,26 @@ class _ConverterScreenState extends State<ConverterScreen> {
                           const SizedBox(height: 12),
                           const Text(
                             'Хөрвүүлж байна...',
-                            style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: DesktopTheme.textSecondary,
+                            ),
                           ),
                         ] else ...[
-                          Icon(Icons.translate, size: 40, color: DesktopTheme.textMuted.withValues(alpha: 0.5)),
+                          Icon(
+                            Icons.translate,
+                            size: 40,
+                            color: DesktopTheme.textMuted.withValues(
+                              alpha: 0.5,
+                            ),
+                          ),
                           const SizedBox(height: 10),
                           const Text(
                             'Хөрвүүлсэн текст энд босоо монгол бичгээр гарна.',
-                            style: TextStyle(fontSize: 13, color: DesktopTheme.textSecondary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: DesktopTheme.textSecondary,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           const Text(
@@ -1426,9 +1572,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildLegendDot(color: DesktopTheme.primary, label: 'Олон утгатай'),
+                  _buildLegendDot(
+                    color: DesktopTheme.primary,
+                    label: 'Олон утгатай',
+                  ),
                   const SizedBox(width: 14),
-                  _buildLegendDot(color: DesktopTheme.danger, label: 'Тольд үгүй'),
+                  _buildLegendDot(
+                    color: DesktopTheme.danger,
+                    label: 'Тольд үгүй',
+                  ),
                   const SizedBox(width: 14),
                   const Text(
                     '• Үг дээр товшиж утга сонгох / засах',
@@ -1453,7 +1605,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 5),
-        Text(label, style: const TextStyle(fontSize: 11, color: DesktopTheme.textSecondary)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            color: DesktopTheme.textSecondary,
+          ),
+        ),
       ],
     );
   }
@@ -1488,7 +1646,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
           child: Listener(
             onPointerDown: (event) => _lastPointerPosition = event.position,
             child: GestureDetector(
-              onSecondaryTapUp: (details) => _handleSecondaryTap(details.globalPosition),
+              onSecondaryTapUp: (details) =>
+                  _handleSecondaryTap(details.globalPosition),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: MongolTextField(

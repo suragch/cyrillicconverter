@@ -87,20 +87,17 @@ class DesktopHeader extends StatelessWidget {
                       _buildNavTab(
                         tab: DesktopNavTab.converter,
                         label: 'Хөрвүүлэгч',
-                        icon: Icons.translate,
                       ),
                       const SizedBox(width: 4),
                       _buildNavTab(
                         tab: DesktopNavTab.moderator,
                         label: isCompact ? 'Шүүгч' : 'Шүүгч / Модератор',
-                        icon: Icons.rate_review_outlined,
                         badgeCount: moderatorBadgeCount,
                       ),
                       const SizedBox(width: 4),
                       _buildNavTab(
                         tab: DesktopNavTab.dictionary,
                         label: isCompact ? 'Толь' : 'Толь бичиг',
-                        icon: Icons.menu_book_outlined,
                       ),
                     ],
                   ),
@@ -284,7 +281,6 @@ class DesktopHeader extends StatelessWidget {
                         DesktopButton(
                           onPressed: onLoginPressed,
                           label: 'Нэвтрэх',
-                          icon: const Icon(Icons.login, size: 13),
                           variant: DesktopButtonVariant.secondary,
                           isDense: true,
                         ),
@@ -302,7 +298,7 @@ class DesktopHeader extends StatelessWidget {
   Widget _buildNavTab({
     required DesktopNavTab tab,
     required String label,
-    required IconData icon,
+    IconData? icon,
     int badgeCount = 0,
   }) {
     final isActive = activeTab == tab;
@@ -326,14 +322,16 @@ class DesktopHeader extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 14,
-                color: isActive
-                    ? DesktopTheme.primary
-                    : DesktopTheme.textSecondary,
-              ),
-              const SizedBox(width: 5),
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 14,
+                  color: isActive
+                      ? DesktopTheme.primary
+                      : DesktopTheme.textSecondary,
+                ),
+                const SizedBox(width: 5),
+              ],
               Text(
                 label,
                 style: TextStyle(

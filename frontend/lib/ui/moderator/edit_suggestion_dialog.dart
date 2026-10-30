@@ -249,10 +249,6 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                     onPressed: () =>
                         setState(() => _showKeyboard = !_showKeyboard),
                     label: _showKeyboard ? 'Товчлуур нуух' : 'Товчлуур харах',
-                    icon: Icon(
-                      _showKeyboard ? Icons.keyboard_hide : Icons.keyboard,
-                      size: 14,
-                    ),
                     variant: DesktopButtonVariant.subtle,
                     isDense: true,
                   ),
@@ -573,7 +569,6 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
             DesktopButton(
               onPressed: _isSaving ? null : () => _handleSave(andApprove: true),
               label: 'Хадгалаад батлах',
-              icon: const Icon(Icons.check_circle_outline, size: 14),
               variant: DesktopButtonVariant.primary,
               isLoading: _isSaving,
               isDense: true,

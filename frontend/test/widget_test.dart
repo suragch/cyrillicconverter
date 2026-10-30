@@ -6,6 +6,7 @@ import 'package:frontend/services/latin_ime.dart';
 import 'package:frontend/token.dart';
 import 'package:frontend/ui/desktop/components/desktop_button.dart';
 import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
+import 'package:mongol/mongol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -262,6 +263,9 @@ void main() {
 
       // Check convert button
       expect(find.text('Хөрвүүлэх'), findsOneWidget);
+
+      // Check vertical Mongol text placeholder in empty output area
+      expect(find.byType(MongolText), findsOneWidget);
     });
 
     testWidgets('Guest user sees Login button without persistent token', (

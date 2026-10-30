@@ -203,7 +203,6 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                               ? null
                               : () => _searchWord(_searchController.text),
                           label: 'Хайх',
-                          icon: const Icon(Icons.search, size: 14),
                           variant: DesktopButtonVariant.primary,
                           isLoading: _isSearching,
                         ),
@@ -212,7 +211,6 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                           DesktopButton(
                             onPressed: widget.onDownloadDictionary,
                             label: 'Толь татах (CSV)',
-                            icon: const Icon(Icons.download_outlined, size: 14),
                             variant: DesktopButtonVariant.secondary,
                           ),
                         ],
@@ -357,7 +355,6 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               DesktopButton(
                 onPressed: () => _addNewDefinition(searchedWord),
                 label: 'Шинэ хувилбар нэмэх',
-                icon: const Icon(Icons.add, size: 14),
                 variant: DesktopButtonVariant.secondary,
                 isDense: true,
               ),
@@ -416,7 +413,6 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                     DesktopButton(
                       onPressed: () => _addNewDefinition(searchedWord),
                       label: 'Толь бичигт бүртгэх',
-                      icon: const Icon(Icons.add, size: 14),
                       variant: DesktopButtonVariant.primary,
                     ),
                   ],

@@ -156,10 +156,6 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                     onPressed: () =>
                         setState(() => _showKeyboard = !_showKeyboard),
                     label: _showKeyboard ? 'Товчлуур нуух' : 'Товчлуур харах',
-                    icon: Icon(
-                      _showKeyboard ? Icons.keyboard_hide : Icons.keyboard,
-                      size: 14,
-                    ),
                     variant: DesktopButtonVariant.subtle,
                     isDense: true,
                   ),

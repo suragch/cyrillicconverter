@@ -1044,14 +1044,12 @@ class _ModeratorPageState extends State<ModeratorPage> {
             index: 0,
             label: 'Хянагдах саналууд',
             count: _suggestions.length,
-            icon: Icons.rate_review_outlined,
           ),
           const SizedBox(width: 8),
           _buildQueueTabBtn(
             index: 1,
             label: 'Дутуу үгс',
             count: _missingWords.length,
-            icon: Icons.warning_amber_outlined,
           ),
 
           if (_activeQueueTab == 1) ...[
@@ -1096,7 +1094,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
           DesktopButton(
             onPressed: _isDownloadingDb ? null : _downloadDatabaseSnapshot,
             label: 'Бааз татах (.db)',
-            icon: const Icon(Icons.storage, size: 14),
             variant: DesktopButtonVariant.secondary,
             isLoading: _isDownloadingDb,
             isDense: true,
@@ -1106,7 +1103,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
           DesktopButton(
             onPressed: _showAddModeratorDialog,
             label: 'Админ нэмэх',
-            icon: const Icon(Icons.person_add_alt_1_outlined, size: 14),
             variant: DesktopButtonVariant.secondary,
             isDense: true,
           ),
@@ -1126,7 +1122,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
               );
             },
             label: 'Үг нэмэх',
-            icon: const Icon(Icons.add, size: 14),
             variant: DesktopButtonVariant.secondary,
             isDense: true,
           ),
@@ -1157,7 +1152,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     required int index,
     required String label,
     required int count,
-    required IconData icon,
+    IconData? icon,
   }) {
     final isActive = _activeQueueTab == index;
 
@@ -1185,14 +1180,16 @@ class _ModeratorPageState extends State<ModeratorPage> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 14,
-                color: isActive
-                    ? DesktopTheme.primary
-                    : DesktopTheme.textSecondary,
-              ),
-              const SizedBox(width: 6),
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 14,
+                  color: isActive
+                      ? DesktopTheme.primary
+                      : DesktopTheme.textSecondary,
+                ),
+                const SizedBox(width: 6),
+              ],
               Text(
                 label,
                 style: TextStyle(
@@ -1335,7 +1332,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
               DesktopButton(
                 onPressed: _loadData,
                 label: 'Дахин шалгах',
-                icon: const Icon(Icons.refresh, size: 14),
                 variant: DesktopButtonVariant.secondary,
               ),
             ],
@@ -1698,7 +1694,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       onPressed: _handleApproveCurrent,
                       label: 'Зөвшөөрөх',
                       shortcutHint: '1',
-                      icon: const Icon(Icons.check_circle_outline, size: 15),
                       variant: DesktopButtonVariant.primary,
                     ),
                     DesktopButton(
@@ -1706,28 +1701,24 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           _handleRejectCurrent('Кирилл бичгийн алдаатай'),
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
-                      icon: const Icon(Icons.spellcheck, size: 14),
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
                       onPressed: () => _handleRejectCurrent('Кирилл үг биш'),
                       label: 'Үг биш',
                       shortcutHint: '3',
-                      icon: const Icon(Icons.block, size: 14),
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
                       onPressed: _openEditDialog,
                       label: 'Засах',
                       shortcutHint: 'E',
-                      icon: const Icon(Icons.edit_outlined, size: 14),
                       variant: DesktopButtonVariant.secondary,
                     ),
                     DesktopButton(
                       onPressed: _suggestions.length > 1 ? _skipCurrent : null,
                       label: 'Алгасах',
                       shortcutHint: 'Space',
-                      icon: const Icon(Icons.skip_next_outlined, size: 14),
                       variant: DesktopButtonVariant.subtle,
                     ),
                   ],
@@ -1782,7 +1773,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
               DesktopButton(
                 onPressed: _loadData,
                 label: 'Дахин шалгах',
-                icon: const Icon(Icons.refresh, size: 14),
                 variant: DesktopButtonVariant.secondary,
               ),
             ],
@@ -2046,7 +2036,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       onPressed: () => _openDefineMissingDialog(cyrillic),
                       label: 'Тодорхойлох / Нэмэх',
                       shortcutHint: '1 / E',
-                      icon: const Icon(Icons.add, size: 15),
                       variant: DesktopButtonVariant.primary,
                     ),
                     DesktopButton(
@@ -2056,7 +2045,6 @@ class _ModeratorPageState extends State<ModeratorPage> {
                       ),
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
-                      icon: const Icon(Icons.spellcheck, size: 14),
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
@@ -2064,14 +2052,12 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
                       label: 'Үг биш',
                       shortcutHint: '3',
-                      icon: const Icon(Icons.block, size: 14),
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
                       onPressed: _missingWords.length > 1 ? _skipMissing : null,
                       label: 'Алгасах',
                       shortcutHint: 'Space',
-                      icon: const Icon(Icons.skip_next_outlined, size: 14),
                       variant: DesktopButtonVariant.subtle,
                     ),
                   ],

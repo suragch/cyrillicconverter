@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
+import 'package:mongol_code/mongol_code.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/file_downloader.dart';
@@ -126,6 +127,8 @@ class ConverterScreen extends StatefulWidget {
 }
 
 class _ConverterScreenState extends State<ConverterScreen> {
+  static final String _mongolWordMenksoft = convertUnicodeToMenksoft('ᠮᠣᠩᠭᠣᠯ');
+
   final TextEditingController _inputTextController = TextEditingController();
   late final MongolConverterController _outputController;
   final GlobalKey _fieldKey = GlobalKey();
@@ -1285,15 +1288,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.edit_note,
-                  size: 16,
-                  color: DesktopTheme.textSecondary,
-                ),
-                const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Эх бичвэр (Кирилл)',
+                    'Кирилл',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -1401,12 +1398,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       ? 'Хөрвүүлсэн'
                       : 'Хөрвүүлэх',
                   shortcutHint: '⌘↵',
-                  icon: Icon(
-                    (!_isConversionDirty && _lastConvertedText != null)
-                        ? Icons.check
-                        : Icons.translate,
-                    size: 14,
-                  ),
                   variant: (!_isConversionDirty && _lastConvertedText != null)
                       ? DesktopButtonVariant.secondary
                       : DesktopButtonVariant.primary,
@@ -1453,15 +1444,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.article_outlined,
-                  size: 16,
-                  color: DesktopTheme.textSecondary,
-                ),
-                const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Монгол бичиг (Босоо)',
+                    'Монгол бичиг',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -1485,7 +1470,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       : null,
                   label: 'Хуулах',
                   shortcutHint: '⌘C',
-                  icon: const Icon(Icons.copy, size: 13),
                   variant: DesktopButtonVariant.secondary,
                   isDense: true,
                 ),
@@ -1515,14 +1499,17 @@ class _ConverterScreenState extends State<ConverterScreen> {
                             ),
                           ),
                         ] else ...[
-                          Icon(
-                            Icons.translate,
-                            size: 40,
-                            color: DesktopTheme.textMuted.withValues(
-                              alpha: 0.5,
+                          MongolText(
+                            _mongolWordMenksoft,
+                            style: TextStyle(
+                              fontSize: 42,
+                              fontFamily: 'Menksoft',
+                              color: DesktopTheme.textMuted.withValues(
+                                alpha: 0.5,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           const Text(
                             'Хөрвүүлсэн текст энд босоо монгол бичгээр гарна.',
                             style: TextStyle(

@@ -1,18 +1,66 @@
-# Cyrillic to Traditional Mongolian Converter
+# Cyrillic to Traditional Mongolian Converter Blueprint
 
 A web and desktop suite for converting Cyrillic Mongolian text into Traditional Mongolian vertical script (`ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ`), resolving homonyms, managing dictionary definitions, and crowd-sourcing missing words with moderator checking.
 
 ---
 
-## System Architecture
+## System Overview
 
-- **Frontend (`frontend/`)**: Flutter desktop-style workspace to convert Cyrillic to traditional script.
-- **Backend (`backend/`)**: Dart server built with Shelf and SQLite in WAL mode. Features Cyrillic validation, token authentication via PocketBase, and data export.
-- **Data Model**:
-  - `words` & `definitions`: 17,850+ verified Cyrillic-to-Traditional-Mongolian entries with primary and secondary homonym flags.
-  - `unknown_logs`: Automatically aggregates unknown Cyrillic words with occurrence frequency and sentence context.
-  - `suggestions`: Community submissions awaiting moderator review.
-  - `rejected_words`: Complete historical audit log of rejected entries (misspellings or invalid tokens).
+The system consists of a Flutter desktop-style web/desktop workspace communicating with a Dart Shelf HTTP server backed by SQLite 3 (in WAL mode). The converter converts Cyrillic text to Traditional Mongolian script using Menksoft encoding glyphs, facilitates homonym selection, records unknown terms with privacy-safe sentence contexts, and provides an end-to-end moderation workflow for community dictionary contributions.
+
+```mermaid
+flowchart LR
+    Client["Frontend (Flutter Web/Desktop)"] -->|HTTP /convert, /words/check| Server["Backend (Dart Shelf)"]
+    Client -->|HTTP /admin/* with Token| Server
+    Server -->|Read/Write WAL| DB[("SQLite (dictionary.db)")]
+    Server -->|Verify Token / Auth| PB[("PocketBase Auth")]
+```
+
+---
+
+## Subdirectories & System Boundaries
+
+- [backend](./backend/README.md): Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional Mongolian conversion engine, dictionary queries, moderation workflow, and atomic database backups.
+- [frontend](./frontend/README.md): Flutter client application supporting Web and Desktop platforms, providing vertical text rendering, homonym disambiguation, and community word moderation.
+
+---
+
+## Global Invariants
+
+- **Lossless Text Roundtrip**: The tokenizer guarantees `tokens.map((t) => t.text).join() == input` across arbitrary input strings, ensuring whitespace, punctuation, and newlines are never corrupted during conversion.
+- **Pure Cyrillic Script Integrity**: Terms must strictly consist of Cyrillic characters and connector punctuation (`-`, `'`, `_`) to be logged as missing words or added to the dictionary. Abbreviations (e.g., `МУИС`, `АН`) retain uppercase casing across both client and server to prevent semantic collisions.
+- **Single Primary Homonym**: Each dictionary word entry enforces at most one primary definition (`is_primary = 1`), with multiple candidate definitions ordered deterministically by `is_primary DESC, id ASC`.
+- **Privacy-Preserving Context Retention**: User consent is mandatory before storing sentence context for unknown words. Context snippets are sanitized on ingestion (redacting URLs, emails, and long numbers) and automatically cleared to `NULL` when suggestions are approved or rejected.
+- **Role-Based Access Enforcement**: All `/admin/*` routes strictly require valid Bearer token authentication against PocketBase. Moderator endpoints require `moderator` or `admin` status; database snapshot downloads and moderator creation require `admin` status.
+
+---
+
+## Global Side Effects
+
+- **SQLite Database (`dictionary.db`)**: Mutations across `words`, `definitions`, `unknown_logs`, `suggestions`, and `rejected_words` tables with WAL journal write-ahead logging.
+- **PocketBase Service**: HTTP queries against external PocketBase instance for user credential validation, token verification, and moderator account provisioning.
+- **Backup Snapshots & Exports**: Disk snapshot generation using SQLite `VACUUM INTO` for zero-corruption backups streamed over HTTP; browser DOM Blob or local filesystem writes to `$HOME/Downloads`.
+- **Network Interfaces**: Backend server binds to `InternetAddress.anyIPv4` on port `8080` (or `PORT` environment variable).
+
+---
+
+## System Verification
+
+Execute the project verification workflow across both subsystems:
+
+```bash
+# Backend verification
+cd backend
+dart format .
+dart analyze --fatal-infos
+dart test
+
+# Frontend verification
+cd ../frontend
+dart format .
+flutter analyze --fatal-infos
+flutter test
+```
 
 ---
 
@@ -97,23 +145,3 @@ flutter build web --release --dart-define=API_BASE_URL=https://api.yourdomain.co
 ```
 
 Deploy the contents of `frontend/build/web/` to any static hosting provider (Cloudflare Pages, Firebase Hosting, Nginx, or Netlify). Ensure the host serves `.ttf` fonts with appropriate `Cache-Control` headers.
-
----
-
-## Testing & Quality Assurance
-
-Run automated unit and integration test suites:
-
-```bash
-# Backend test suite (23 tests)
-cd backend && dart test
-
-# Backend static analysis
-cd backend && dart analyze
-
-# Frontend test suite (11 widget and unit tests)
-cd frontend && flutter test
-
-# Frontend static analysis
-cd frontend && flutter analyze
-```

@@ -1,16 +1,20 @@
-# frontend
+# Frontend Application (`frontend`)
 
-A new Flutter project.
+## Overview
+Flutter application for the Cyrillic to Traditional Mongolian conversion suite, targeting Web and Desktop platforms. Features vertical script rendering, side-by-side editing, homonym disambiguation, and moderator workstations.
 
-## Getting Started
+## Subdirectories & Boundaries
+- [lib](./lib/README.md): Application bootstrapping, token models, vertical Mongolian text controllers, desktop design system, dialog workflows, dictionary search, and moderator station.
 
-This project is a starting point for a Flutter application.
+## Verification & Build
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+# Run unit and widget tests
+flutter test
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+# Run static analysis
+flutter analyze
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# Build optimized production web assets
+flutter build web --release --dart-define=API_BASE_URL=https://api.yourdomain.com
+```

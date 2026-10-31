@@ -1,6 +1,11 @@
-# Cyrillic Converter Backend Server
+# Backend Architecture & Server (`backend`)
 
-Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional Mongolian conversion engine, dictionary queries, and moderation workflow.
+## Overview
+Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional Mongolian conversion engine, dictionary queries, and moderation workflow. Coordinates the server CLI commands and the core domain/database library.
+
+## Subdirectories & Boundaries
+- [bin](./bin/README.md): CLI binaries, database migration/seeding scripts, and HTTP REST server entry points.
+- [lib](./lib/README.md): Core domain and infrastructure library containing lossless text tokenization, Cyrillic validation, SQLite dictionary engine, homonym resolution, and PocketBase authentication middleware.
 
 ## Endpoints
 
@@ -26,7 +31,7 @@ Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional 
 - `GET /admin/db/export-json`: Download complete JSON database dump.
 - `POST /admin/db/seed`: Trigger background seed from legacy PocketBase upstream.
 
-## CLI Commands
+## CLI Commands & Verification
 
 ```bash
 # Run server locally

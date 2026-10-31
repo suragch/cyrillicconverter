@@ -272,15 +272,6 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
           size: 18,
           color: DesktopTheme.primary,
         ),
-        headerActions: [
-          DesktopButton(
-            icon: const Icon(Icons.keyboard_outlined, size: 14),
-            onPressed: () => setState(() => _showKeyboard = !_showKeyboard),
-            label: _showKeyboard ? 'Товчлуур нуух' : 'Товчлуур харах',
-            variant: DesktopButtonVariant.subtle,
-            isDense: true,
-          ),
-        ],
         content: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -509,8 +500,21 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: DesktopIconButton(
+                        icon: Icons.keyboard_outlined,
+                        tooltip: _showKeyboard
+                            ? 'Товчлуур нуух'
+                            : 'Товчлуур харах',
+                        color: _showKeyboard ? DesktopTheme.primary : null,
+                        onPressed: () =>
+                            setState(() => _showKeyboard = !_showKeyboard),
+                      ),
+                    ),
                     if (_showKeyboard) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 6),
                       Container(
                         decoration: BoxDecoration(
                           color: DesktopTheme.canvas,

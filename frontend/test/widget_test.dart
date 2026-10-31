@@ -430,18 +430,33 @@ void main() {
         await tester.pumpAndSettle();
 
         // Keyboard should be hidden by default
-        expect(find.text('Товчлуур харах'), findsOneWidget);
+        expect(find.byTooltip('Товчлуур харах'), findsOneWidget);
         expect(find.text('Эгшиг (Vowels)'), findsNothing);
 
+        // Verify the keyboard icon is below the text fields on the right side
+        final previewFinder = find.byType(MongolText);
+        final keyboardButtonFinder = find.byTooltip('Товчлуур харах');
+        final explanationFieldFinder = find.widgetWithText(
+          TextField,
+          'Тайлбар (заавал биш)',
+        );
+        expect(
+          tester.getTopLeft(keyboardButtonFinder).dy,
+          greaterThan(tester.getBottomLeft(explanationFieldFinder).dy),
+        );
+        expect(
+          tester.getTopLeft(keyboardButtonFinder).dx,
+          greaterThan(tester.getTopLeft(previewFinder).dx),
+        );
+
         // Tap show keyboard button
-        await tester.tap(find.text('Товчлуур харах'));
+        await tester.tap(keyboardButtonFinder);
         await tester.pumpAndSettle();
 
         // Keyboard should now be visible on the right side of the Mongolian preview
-        expect(find.text('Товчлуур нуух'), findsOneWidget);
+        expect(find.byTooltip('Товчлуур нуух'), findsOneWidget);
         expect(find.text('Эгшиг (Vowels)'), findsOneWidget);
 
-        final previewFinder = find.byType(MongolText);
         final keyboardFinder = find.text('Эгшиг (Vowels)');
         expect(
           tester.getTopLeft(keyboardFinder).dx,
@@ -449,11 +464,11 @@ void main() {
         );
 
         // Tap hide keyboard button
-        await tester.tap(find.text('Товчлуур нуух'));
+        await tester.tap(find.byTooltip('Товчлуур нуух'));
         await tester.pumpAndSettle();
 
         // Keyboard should be hidden again
-        expect(find.text('Товчлуур харах'), findsOneWidget);
+        expect(find.byTooltip('Товчлуур харах'), findsOneWidget);
         expect(find.text('Эгшиг (Vowels)'), findsNothing);
       },
     );
@@ -693,8 +708,8 @@ void main() {
         await tester.tap(find.text('Open Dialog'));
         await tester.pumpAndSettle();
 
-        // Title bar should contain the keyboard button
-        expect(find.text('Товчлуур харах'), findsOneWidget);
+        // Should contain the keyboard button
+        expect(find.byTooltip('Товчлуур харах'), findsOneWidget);
 
         final scrollbarFinder = find.byType(Scrollbar);
         expect(scrollbarFinder, findsOneWidget);

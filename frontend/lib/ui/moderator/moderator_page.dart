@@ -221,7 +221,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final id = current['id'] as int;
     final cyrillic = current['cyrillic'] as String;
     final menksoft = current['menksoft_code'] as String;
-    String? note = (current['context'] as String?)?.trim();
+    String? note = (current['explanation'] as String?)?.trim();
 
     final exists = _currentWordCheckResult?['exists'] == true;
     final definitions =
@@ -455,7 +455,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
       builder: (ctx) => EditSuggestionDialog(
         initialCyrillic: current['cyrillic'] as String,
         initialMenksoft: current['menksoft_code'] as String,
-        initialExplanation: current['context'] as String?,
+        initialExplanation: current['explanation'] as String?,
         serverUrl: widget.serverUrl,
         authToken: widget.authToken,
         onSave:
@@ -476,7 +476,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                 setState(() {
                   current['cyrillic'] = cyrillic;
                   current['menksoft_code'] = menksoft;
-                  current['context'] = explanation;
+                  current['explanation'] = explanation;
                 });
                 _checkWordForCurrent();
               }
@@ -601,6 +601,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
   Future<void> _addWord({
     required String cyrillic,
     required String menksoft,
+    String? context,
     String? explanation,
   }) async {
     final res = await http.post(
@@ -1054,6 +1055,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final cyrillic = current['cyrillic'] as String;
     final menksoft = current['menksoft_code'] as String;
     final contextText = current['context'] as String?;
+    final explanationText = current['explanation'] as String?;
     final submittedBy = current['submitted_by'] as String?;
     final createdAt = current['created_at'] as String?;
     final latin = LatinIme.menksoftToLatin(menksoft);
@@ -1234,7 +1236,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           ),
                           const SizedBox(height: 12),
                           const Text(
-                            'Тэмдэглэл / Тайлбар:',
+                            'Утгын орчин / Жишээ өгүүлбэр (Шүүгчид зориулсан):',
                             style: DesktopTheme.caption,
                           ),
                           const SizedBox(height: 4),
@@ -1253,7 +1255,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                               (contextText != null &&
                                       contextText.trim().isNotEmpty)
                                   ? contextText
-                                  : 'Тэмдэглэл байхгүй',
+                                  : 'Утгын орчин байхгүй',
                               style: TextStyle(
                                 fontSize: 13,
                                 color:
@@ -1264,6 +1266,43 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                 fontStyle:
                                     (contextText != null &&
                                         contextText.trim().isNotEmpty)
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Үгийн тайлбар (Толь бичигт бүртгэгдэх):',
+                            style: DesktopTheme.caption,
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: DesktopTheme.canvas,
+                              borderRadius: DesktopTheme.roundedSmall,
+                              border: Border.all(
+                                color: DesktopTheme.border,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              (explanationText != null &&
+                                      explanationText.trim().isNotEmpty)
+                                  ? explanationText
+                                  : 'Тайлбар байхгүй',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color:
+                                    (explanationText != null &&
+                                        explanationText.trim().isNotEmpty)
+                                    ? DesktopTheme.textPrimary
+                                    : DesktopTheme.textMuted,
+                                fontStyle:
+                                    (explanationText != null &&
+                                        explanationText.trim().isNotEmpty)
                                     ? FontStyle.normal
                                     : FontStyle.italic,
                               ),

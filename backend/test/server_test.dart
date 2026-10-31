@@ -241,7 +241,17 @@ void main() {
     final jsonUnknown = jsonDecode(resUnknown.body);
     expect(jsonUnknown['exists'], false);
     expect((jsonUnknown['definitions'] as List).isEmpty, true);
-    expect(jsonUnknown['rejectionHistory'], isA<List>());
+    // Public endpoint must NOT leak rejectionHistory
+    expect(jsonUnknown.containsKey('rejectionHistory'), false);
+
+    // Moderator endpoint returns rejectionHistory
+    final resAdmin = await get(
+      Uri.parse('$host/admin/words/check?cyrillic=үл_байгаа_үг'),
+      headers: modHeaders,
+    );
+    expect(resAdmin.statusCode, 200);
+    final jsonAdmin = jsonDecode(resAdmin.body);
+    expect(jsonAdmin.containsKey('rejectionHistory'), true);
   });
 
   test('Admin endpoints require moderator authorization', () async {
@@ -455,4 +465,67 @@ void main() {
     final json = jsonDecode(response.body);
     expect(json['error'], contains('кирилл'));
   });
+
+  test(
+    'Convert with saveContext: false logs unknown words with null context',
+    () async {
+      final response = await post(
+        Uri.parse('$host/convert'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': 'privacy-test-session-1',
+        },
+        body: jsonEncode({
+          'text': 'нууцлалынүг Би Батдоржид 500000 төгрөг өгөв',
+          'saveContext': false,
+        }),
+      );
+      expect(response.statusCode, 200);
+
+      final missingRes = await get(
+        Uri.parse('$host/admin/missing?min_frequency=1'),
+        headers: modHeaders,
+      );
+      expect(missingRes.statusCode, 200);
+      final missingList = (jsonDecode(missingRes.body)['missing'] as List);
+      final item = missingList.firstWhere(
+        (m) => m['cyrillic'] == 'нууцлалынүг',
+      );
+      expect(item['frequency'], 1);
+      expect(item['last_context'], isNull);
+    },
+  );
+
+  test(
+    'Convert with saveContext: true sanitizes emails, URLs, and 4+ digit numbers',
+    () async {
+      final response = await post(
+        Uri.parse('$host/convert'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': 'privacy-test-session-2',
+        },
+        body: jsonEncode({
+          'text':
+              'харилцааүг утас 99112233 хаяг user@test.mn сайт https://test.mn',
+          'saveContext': true,
+        }),
+      );
+      expect(response.statusCode, 200);
+
+      final missingRes = await get(
+        Uri.parse('$host/admin/missing?min_frequency=1'),
+        headers: modHeaders,
+      );
+      expect(missingRes.statusCode, 200);
+      final missingList = (jsonDecode(missingRes.body)['missing'] as List);
+      final item = missingList.firstWhere((m) => m['cyrillic'] == 'харилцааүг');
+      expect(item['last_context'], isNotNull);
+      final ctx = item['last_context'] as String;
+      expect(ctx.contains('99112233'), false);
+      expect(ctx.contains('user@test.mn'), false);
+      expect(ctx.contains('https://test.mn'), false);
+      expect(ctx.contains('[...]'), true);
+    },
+  );
 }

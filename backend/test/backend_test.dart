@@ -140,12 +140,15 @@ void main() {
         cyrillic: 'туршилт',
         menksoft: 'menk_test',
         context: 'туршилт хийв',
+        explanation: 'тестийн тайлбар',
         submittedBy: 'tester',
       );
 
       final pending = appDb.getPendingSuggestions();
       expect(pending.length, 1);
       expect(pending.first['cyrillic'], 'туршилт');
+      expect(pending.first['context'], 'туршилт хийв');
+      expect(pending.first['explanation'], 'тестийн тайлбар');
 
       // Approve suggestion
       final sugId = pending.first['id'] as int;
@@ -154,11 +157,69 @@ void main() {
       // Suggestion should no longer be pending
       expect(appDb.getPendingSuggestions().isEmpty, true);
 
-      // Word should now exist in dictionary
+      // Word should now exist in dictionary with explanation only (never context)
       final options = appDb.lookupWord('туршилт');
       expect(options.isNotEmpty, true);
       expect(options.first['menksoft'], 'menk_test');
+      expect(options.first['explanation'], 'тестийн тайлбар');
+
+      // Ensure context is cleared from suggestions table after approval
+      final updatedSug = rawDb.select(
+        'SELECT context, explanation FROM suggestions WHERE id = ?',
+        [sugId],
+      );
+      expect(updatedSug.first['context'], isNull);
+      expect(updatedSug.first['explanation'], 'тестийн тайлбар');
     });
+
+    test(
+      'Rejections do not copy document context into rejected_words.details',
+      () {
+        // 1. Missing word rejection
+        appDb.logUnknownWord('нууцүг', context: 'нууц утас 99112233');
+        appDb.rejectMissingWord(
+          'нууцүг',
+          reason: 'нууц үг биш',
+          reviewedBy: 'mod',
+        );
+
+        final rejections = rawDb.select(
+          'SELECT * FROM rejected_words WHERE cyrillic = ?',
+          ['нууцүг'],
+        );
+        expect(rejections.length, 1);
+        expect(rejections.first['reason'], 'нууц үг биш');
+        expect(rejections.first['details'], isNull);
+
+        // 2. Suggestion rejection
+        appDb.addSuggestion(
+          cyrillic: 'нууцсанал',
+          menksoft: 'menk_code',
+          context: 'нууц бичвэр',
+          explanation: 'ямар нэг тайлбар',
+          submittedBy: 'user',
+        );
+        final sugList = appDb.getPendingSuggestions();
+        final sugId =
+            sugList.firstWhere((s) => s['cyrillic'] == 'нууцсанал')['id']
+                as int;
+        appDb.rejectSuggestion(sugId, reason: 'хүчингүй', reviewedBy: 'mod');
+
+        final sugRejections = rawDb.select(
+          'SELECT * FROM rejected_words WHERE cyrillic = ?',
+          ['нууцсанал'],
+        );
+        expect(
+          sugRejections.first['details'],
+          'ямар нэг тайлбар',
+        ); // stores explanation, not context
+        final sugRow = rawDb.select(
+          'SELECT context FROM suggestions WHERE id = ?',
+          [sugId],
+        );
+        expect(sugRow.first['context'], isNull); // context cleared
+      },
+    );
 
     test('Abbreviations and regular words do not collide', () {
       // Add lowercase 'ан' (hunting / game)

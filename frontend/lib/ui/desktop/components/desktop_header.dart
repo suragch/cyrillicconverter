@@ -13,6 +13,8 @@ class DesktopHeader extends StatelessWidget {
   final Map<String, dynamic>? currentUser;
   final VoidCallback onLoginPressed;
   final VoidCallback onLogoutPressed;
+  final VoidCallback? onSettingsPressed;
+  final bool? saveContextEnabled;
 
   const DesktopHeader({
     super.key,
@@ -24,6 +26,8 @@ class DesktopHeader extends StatelessWidget {
     this.currentUser,
     required this.onLoginPressed,
     required this.onLogoutPressed,
+    this.onSettingsPressed,
+    this.saveContextEnabled,
   });
 
   @override
@@ -94,6 +98,15 @@ class DesktopHeader extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (onSettingsPressed != null) ...[
+                        DesktopIconButton(
+                          icon: Icons.shield_outlined,
+                          size: 15,
+                          tooltip: 'Нууцлал ба тохиргоо',
+                          onPressed: onSettingsPressed,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       // User / Auth Strip
                       if (isRestoringSession)
                         const SizedBox(

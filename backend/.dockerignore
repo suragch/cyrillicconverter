@@ -7,3 +7,7 @@ build/
 .gitignore
 .idea/
 .packages
+*.db
+*.db-shm
+*.db-wal
+dictionary.db*

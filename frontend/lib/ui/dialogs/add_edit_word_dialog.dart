@@ -10,9 +10,11 @@ class AddEditWordDialog extends StatefulWidget {
   final String? initialCyrillic;
   final String? initialLatin;
   final String? initialExplanation;
+  final String? initialContext;
   final Future<void> Function({
     required String cyrillic,
     required String menksoft,
+    String? context,
     String? explanation,
   })
   onSubmit;
@@ -25,6 +27,7 @@ class AddEditWordDialog extends StatefulWidget {
     this.initialCyrillic,
     this.initialLatin,
     this.initialExplanation,
+    this.initialContext,
     required this.onSubmit,
     this.title = 'Үг нэмэх / санал болгох',
     this.submitButtonText = 'Илгээх',
@@ -39,10 +42,12 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   late final TextEditingController _cyrillicController;
   late final TextEditingController _latinController;
   late final TextEditingController _explanationController;
+  late final TextEditingController _contextController;
   late final FocusNode _latinFocusNode;
   String _previewMenksoft = '';
   bool _isSubmitting = false;
   late bool _showKeyboard;
+  bool _isContextDeleted = false;
 
   @override
   void initState() {
@@ -53,6 +58,10 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     _explanationController = TextEditingController(
       text: widget.initialExplanation,
     );
+    final trimmedCtx = widget.initialContext?.trim() ?? '';
+    _contextController = TextEditingController(text: trimmedCtx);
+    _isContextDeleted = trimmedCtx.isEmpty;
+
     _latinFocusNode = FocusNode();
     _latinFocusNode.addListener(_onLatinFocusChanged);
 
@@ -97,6 +106,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     _cyrillicController.dispose();
     _latinController.dispose();
     _explanationController.dispose();
+    _contextController.dispose();
     _latinFocusNode.removeListener(_onLatinFocusChanged);
     _latinFocusNode.dispose();
     super.dispose();
@@ -113,9 +123,14 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
 
     setState(() => _isSubmitting = true);
     try {
+      final contextToSend =
+          (_isContextDeleted || _contextController.text.trim().isEmpty)
+          ? null
+          : _contextController.text.trim();
       await widget.onSubmit(
         cyrillic: cyrillic,
         menksoft: _previewMenksoft,
+        context: contextToSend,
         explanation: _explanationController.text.trim().isEmpty
             ? null
             : _explanationController.text.trim(),
@@ -382,6 +397,107 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                         ),
                       ),
                     ),
+                    if (widget.initialContext != null &&
+                        widget.initialContext!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      if (!_isContextDeleted) ...[
+                        TextField(
+                          controller: _contextController,
+                          style: const TextStyle(fontSize: 12),
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText:
+                                'Утгын орчин / Жишээ өгүүлбэр (Шүүгчид харагдана)',
+                            labelStyle: const TextStyle(fontSize: 12),
+                            border: const OutlineInputBorder(
+                              borderRadius: DesktopTheme.roundedSmall,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            suffixIconConstraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            suffixIcon: Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: DesktopIconButton(
+                                icon: Icons.delete_outline,
+                                size: 14,
+                                tooltip: 'Утгын орчныг устгах',
+                                color: DesktopTheme.danger,
+                                onPressed: () {
+                                  setState(() {
+                                    _isContextDeleted = true;
+                                    _contextController.clear();
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: DesktopTheme.secondarySurface,
+                            borderRadius: DesktopTheme.roundedSmall,
+                            border: Border.all(
+                              color: DesktopTheme.border,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.remove_circle_outline,
+                                size: 14,
+                                color: DesktopTheme.textMuted,
+                              ),
+                              const SizedBox(width: 6),
+                              const Expanded(
+                                child: Text(
+                                  'Утгын орчин илгээгдэхгүй (устгасан)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: DesktopTheme.textMuted,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                icon: const Icon(Icons.restore, size: 12),
+                                label: const Text(
+                                  'Буцаах',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _isContextDeleted = false;
+                                    _contextController.text = widget
+                                        .initialContext!
+                                        .trim();
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                     const SizedBox(height: 6),
                     Align(
                       alignment: Alignment.centerRight,

@@ -62,10 +62,11 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
     });
 
     try {
+      final endpoint = _isModerator ? '/admin/words/check' : '/words/check';
       final res = await http
           .get(
             Uri.parse(
-              '${widget.serverUrl}/words/check?cyrillic=${Uri.encodeComponent(clean)}',
+              '${widget.serverUrl}$endpoint?cyrillic=${Uri.encodeComponent(clean)}',
             ),
             headers: _headers,
           )
@@ -103,6 +104,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
             ({
               required String cyrillic,
               required String menksoft,
+              String? context,
               String? explanation,
             }) async {
               final res = await http.post(
@@ -138,6 +140,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
             ({
               required String cyrillic,
               required String menksoft,
+              String? context,
               String? explanation,
             }) async {
               final res = await http.post(
@@ -146,13 +149,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                 body: jsonEncode({
                   'cyrillic': cyrillic,
                   'menksoft': menksoft,
-                  'context': explanation ?? '',
+                  'context': context ?? '',
+                  'explanation': explanation ?? '',
                 }),
               );
 
               if (res.statusCode == 200) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(
                       content: Text(
                         '"$cyrillic" үгийн санал модераторын дараалалд амжилттай нэмэгдлээ.',

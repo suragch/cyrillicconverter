@@ -413,6 +413,7 @@ void main() {
                             ({
                               required cyrillic,
                               required menksoft,
+                              context,
                               explanation,
                             }) async {},
                       ),
@@ -496,6 +497,7 @@ void main() {
                           ({
                             required cyrillic,
                             required menksoft,
+                            context,
                             explanation,
                           }) async {
                             submitted = true;
@@ -543,6 +545,7 @@ void main() {
                             ({
                               required cyrillic,
                               required menksoft,
+                              context,
                               explanation,
                             }) async {},
                       ),
@@ -609,6 +612,7 @@ void main() {
                             ({
                               required cyrillic,
                               required menksoft,
+                              context,
                               explanation,
                             }) async {},
                       ),
@@ -693,6 +697,7 @@ void main() {
                             ({
                               required cyrillic,
                               required menksoft,
+                              context,
                               explanation,
                             }) async {},
                       ),
@@ -881,6 +886,165 @@ void main() {
         await tester.tap(dropdownArrow);
         await tester.pumpAndSettle();
         expect(find.text('Menksoft код'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'First-time Convert prompt shows PrivacySettingsDialog and persists selection',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 800);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        // Empty SharedPreferences -> privacy preference is null
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        final inputFinder = find.byType(TextField);
+        await tester.enterText(inputFinder, 'сайн байна уу');
+        await tester.pumpAndSettle();
+
+        // Tap Convert
+        final convertBtn = find.widgetWithText(DesktopButton, 'Хөрвүүлэх');
+        await tester.tap(convertBtn);
+        await tester.pumpAndSettle();
+
+        // Privacy dialog should appear
+        expect(find.text('Нууцлалын сонголт'), findsOneWidget);
+        expect(
+          find.text('Үл мэдэгдэх үгийн утгын орчныг хадгалах'),
+          findsOneWidget,
+        );
+        expect(find.text('Утгын орчныг хадгалахгүй'), findsOneWidget);
+
+        // Select "Don't save context"
+        await tester.tap(find.text('Утгын орчныг хадгалахгүй'));
+        await tester.pumpAndSettle();
+
+        // Confirm
+        await tester.tap(find.text('Сонгоод үргэлжлүүлэх'));
+        await tester.pumpAndSettle();
+
+        // Dialog closes and choice is persisted
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('cyrillic_converter_save_context'), false);
+      },
+    );
+
+    testWidgets(
+      'Settings button in header opens PrivacySettingsDialog and allows toggling preference',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 800);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        SharedPreferences.setMockInitialValues({
+          'cyrillic_converter_save_context': true,
+        });
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Settings button in header
+        final settingsBtn = find.byTooltip('Нууцлал ба тохиргоо');
+        expect(settingsBtn, findsOneWidget);
+
+        await tester.tap(settingsBtn);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Нууцлал ба тохиргоо'), findsOneWidget);
+        expect(find.text('Цуцлах'), findsOneWidget);
+        expect(find.text('Хадгалах'), findsOneWidget);
+
+        // Switch to "Don't save context"
+        await tester.tap(find.text('Утгын орчныг хадгалахгүй'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Хадгалах'));
+        await tester.pumpAndSettle();
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('cyrillic_converter_save_context'), false);
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog pre-fills deletable context and submits separately from explanation',
+      (tester) async {
+        String? submittedContext;
+        String? submittedExplanation;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Үл мэдэгдэх үг: "тест"',
+                        initialCyrillic: 'тест',
+                        initialContext: 'Энэ бол тест өгүүлбэр мөн',
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              context,
+                              explanation,
+                            }) async {
+                              submittedContext = context;
+                              submittedExplanation = explanation;
+                            },
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        // Verify pre-filled context is displayed
+        expect(find.text('Энэ бол тест өгүүлбэр мөн'), findsOneWidget);
+        expect(find.byTooltip('Утгын орчныг устгах'), findsOneWidget);
+
+        // Enter explanation
+        final explanationFinder = find.widgetWithText(
+          TextField,
+          'Тайлбар (заавал биш)',
+        );
+        await tester.enterText(explanationFinder, 'туршилтын үг');
+        await tester.pumpAndSettle();
+
+        // Click Delete button on context
+        await tester.tap(find.byTooltip('Утгын орчныг устгах'));
+        await tester.pumpAndSettle();
+
+        // Context is deleted
+        expect(
+          find.text('Утгын орчин илгээгдэхгүй (устгасан)'),
+          findsOneWidget,
+        );
+        expect(find.text('Буцаах'), findsOneWidget);
+
+        // Submit
+        await tester.tap(find.text('Илгээх'));
+        await tester.pumpAndSettle();
+
+        // Context should be null, explanation should be preserved
+        expect(submittedContext, isNull);
+        expect(submittedExplanation, 'туршилтын үг');
       },
     );
   });

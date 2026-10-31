@@ -18,6 +18,7 @@ import 'ui/desktop/components/desktop_header.dart';
 import 'ui/desktop/components/desktop_status_bar.dart';
 import 'ui/desktop/desktop_theme.dart';
 import 'ui/dialogs/add_edit_word_dialog.dart';
+import 'ui/dialogs/privacy_settings_dialog.dart';
 import 'ui/dictionary/dictionary_browse_view.dart';
 import 'ui/moderator/moderator_page.dart';
 
@@ -134,6 +135,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
   final GlobalKey _fieldKey = GlobalKey();
 
   static const String _authTokenStorageKey = 'cyrillic_converter_auth_token';
+  static const String _saveContextStorageKey =
+      'cyrillic_converter_save_context';
 
   static String get _defaultServerUrl {
     const envUrl = String.fromEnvironment('API_BASE_URL');
@@ -150,6 +153,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   String? _authToken;
   Map<String, dynamic>? _currentUser;
   bool _isRestoringSession = false;
+  bool? _saveContextPreference;
 
   // Active navigation tab
   DesktopNavTab _activeTab = DesktopNavTab.converter;
@@ -200,7 +204,43 @@ class _ConverterScreenState extends State<ConverterScreen> {
       tokenSpansProvider: () => _tokenSpanInfos,
     );
     _checkServerHealth();
+    _loadPrivacyPreference();
     _restoreSession();
+  }
+
+  Future<void> _loadPrivacyPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool(_saveContextStorageKey);
+      if (mounted && saved != null) {
+        setState(() {
+          _saveContextPreference = saved;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<bool?> _openPrivacySettingsDialog({bool isFirstTime = false}) async {
+    final chosen = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !isFirstTime,
+      builder: (ctx) => PrivacySettingsDialog(
+        initialSaveContext: _saveContextPreference ?? true,
+        isFirstTimePrompt: isFirstTime,
+      ),
+    );
+    if (chosen != null) {
+      if (mounted) {
+        setState(() {
+          _saveContextPreference = chosen;
+        });
+      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_saveContextStorageKey, chosen);
+      } catch (_) {}
+    }
+    return chosen;
   }
 
   void _onInputTextChanged() {
@@ -394,13 +434,24 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   Future<void> _convert({bool force = false}) async {
     final text = _inputTextController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      return;
+    }
 
-    if (_isLoading) return;
+    if (_isLoading) {
+      return;
+    }
 
     // Guard: If text has not changed since last successful conversion and force is false, no-op.
     if (!force && !_isConversionDirty) {
       return;
+    }
+
+    if (_saveContextPreference == null) {
+      final chosen = await _openPrivacySettingsDialog(isFirstTime: true);
+      if (chosen == null || !mounted) {
+        return;
+      }
     }
 
     setState(() {
@@ -416,7 +467,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
           'Content-Type': 'application/json',
           'X-Session-ID': _sessionId,
         },
-        body: jsonEncode({'text': text}),
+        body: jsonEncode({
+          'text': text,
+          'saveContext': _saveContextPreference ?? true,
+        }),
       );
 
       if (response.statusCode == 200) {
@@ -558,6 +612,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
     }
   }
 
+  String _extractContextAroundToken(int tokenIndex) {
+    if (_tokens.isEmpty || tokenIndex < 0 || tokenIndex >= _tokens.length) {
+      return '';
+    }
+    final start = (tokenIndex - 4).clamp(0, _tokens.length);
+    final end = (tokenIndex + 5).clamp(0, _tokens.length);
+    return _tokens.sublist(start, end).map((t) => t.original).join().trim();
+  }
+
   void _handleTextFieldTap() {
     final selection = _outputController.selection;
     if (!selection.isCollapsed || !selection.isValid) {
@@ -566,13 +629,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
     final charOffset = selection.baseOffset;
     final info = _getTokenAtCharOffset(charOffset);
-    if (info == null) return;
+    if (info == null) {
+      return;
+    }
 
     final token = info.token;
     final pos = _lastPointerPosition ?? Offset.zero;
 
     if (token.type == 'unknown') {
-      _showFixDialog(token);
+      _showFixDialog(token, tokenIndex: info.tokenIndex);
     } else if (token.type == 'word') {
       if (token.options.length > 1) {
         _showAmbiguityMenu(context, info.tokenIndex, token, pos);
@@ -586,14 +651,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
     _lastPointerPosition = globalPosition;
     final root = _fieldKey.currentContext?.findRenderObject();
     final editable = _findMongolRenderEditable(root);
-    if (editable == null) return;
+    if (editable == null) {
+      return;
+    }
 
     final textPosition = editable.getPositionForPoint(globalPosition);
     final info = _getTokenAtCharOffset(textPosition.offset);
-    if (info == null) return;
+    if (info == null) {
+      return;
+    }
 
     if (info.token.type == 'unknown') {
-      _showFixDialog(info.token);
+      _showFixDialog(info.token, tokenIndex: info.tokenIndex);
     } else if (info.token.type == 'word') {
       if (info.token.options.length > 1) {
         _showAmbiguityMenu(
@@ -616,6 +685,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   Future<void> _handleWordAddedOrSuggested({
     required String cyrillic,
     required String menksoft,
+    String? context,
     String? explanation,
   }) async {
     final normalized = LatinIme.normalizeCyrillic(cyrillic);
@@ -658,7 +728,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
         body: jsonEncode({
           'cyrillic': cyrillic,
           'menksoft': menksoft,
-          'context': explanation ?? '',
+          'context': context ?? '',
+          'explanation': explanation ?? '',
         }),
       );
       _fetchModeratorCount();
@@ -670,25 +741,33 @@ class _ConverterScreenState extends State<ConverterScreen> {
     _convert(force: true);
   }
 
-  void _showFixDialog(Token token) {
+  void _showFixDialog(Token token, {int? tokenIndex}) {
+    final snippet = tokenIndex != null
+        ? _extractContextAroundToken(tokenIndex)
+        : null;
     showDialog(
       context: context,
       builder: (ctx) => AddEditWordDialog(
         title: 'Үл мэдэгдэх үг: "${token.original}"',
         initialCyrillic: token.original,
+        initialContext: snippet,
         submitButtonText: 'Нэмэх & Илгээх',
         onSubmit: _handleWordAddedOrSuggested,
       ),
     );
   }
 
-  void _showFlagErrorDialog(Token token) {
+  void _showFlagErrorDialog(Token token, {int? tokenIndex}) {
+    final snippet = tokenIndex != null
+        ? _extractContextAroundToken(tokenIndex)
+        : null;
     showDialog(
       context: context,
       builder: (ctx) => AddEditWordDialog(
         title: 'Алдаа мэдээлэх: "${token.original}"',
         initialCyrillic: token.original,
         initialExplanation: 'Залруулга / Алдаатай байна',
+        initialContext: snippet,
         submitButtonText: 'Залруулга илгээх',
         onSubmit: _handleWordAddedOrSuggested,
       ),
@@ -787,9 +866,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
       ),
       items: items,
     ).then((selectedIndex) {
-      if (selectedIndex == null) return;
+      if (selectedIndex == null) {
+        return;
+      }
       if (selectedIndex == -1) {
-        _showFlagErrorDialog(token);
+        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
       } else {
         setState(() {
           _selectedOptionIndices[tokenIndex] = selectedIndex;
@@ -849,7 +930,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       ],
     ).then((action) {
       if (action == 'flag_error') {
-        _showFlagErrorDialog(token);
+        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
       } else if (action == 'copy_word') {
         final optIdx = _selectedOptionIndices[tokenIndex] ?? 0;
         final chosen = token.options.isNotEmpty
@@ -1053,6 +1134,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 currentUser: _currentUser,
                 onLoginPressed: _showLoginDialog,
                 onLogoutPressed: _logout,
+                onSettingsPressed: () {
+                  _openPrivacySettingsDialog(isFirstTime: false);
+                },
+                saveContextEnabled: _saveContextPreference,
               ),
 
               // Main Workspace View

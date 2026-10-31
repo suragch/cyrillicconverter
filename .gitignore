@@ -39,3 +39,6 @@ yarn-error.log*
 *.db-wal
 dictionary.db*
 
+# Deployment documentation (contains server IPs/internal paths)
+DEPLOYMENT.md
+

@@ -15,6 +15,7 @@ class AppDatabase {
     db.execute('PRAGMA journal_mode = WAL;');
     db.execute('PRAGMA synchronous = NORMAL;');
     db.execute('PRAGMA foreign_keys = ON;');
+    db.execute('PRAGMA secure_delete = ON;');
     return AppDatabase(db);
   }
 
@@ -55,6 +56,7 @@ class AppDatabase {
         cyrillic TEXT NOT NULL,
         menksoft_code TEXT NOT NULL,
         context TEXT,
+        explanation TEXT,
         submitted_by TEXT,
         status TEXT DEFAULT 'pending',
         moderator_note TEXT,
@@ -81,6 +83,9 @@ class AppDatabase {
     ''');
     try {
       db.execute('ALTER TABLE suggestions ADD COLUMN reviewed_by TEXT;');
+    } catch (_) {}
+    try {
+      db.execute('ALTER TABLE suggestions ADD COLUMN explanation TEXT;');
     } catch (_) {}
   }
 
@@ -142,19 +147,33 @@ class AppDatabase {
     );
   }
 
-  /// Adds a user suggestion.
+  /// Adds a user suggestion with separate usage context and word explanation.
   void addSuggestion({
     required String cyrillic,
     required String menksoft,
     String? context,
+    String? explanation,
     String? submittedBy,
   }) {
+    final cleanContext = (context != null && context.trim().isNotEmpty)
+        ? context.trim()
+        : null;
+    final cleanExplanation =
+        (explanation != null && explanation.trim().isNotEmpty)
+        ? explanation.trim()
+        : null;
     db.execute(
       '''
-      INSERT INTO suggestions (cyrillic, menksoft_code, context, submitted_by)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO suggestions (cyrillic, menksoft_code, context, explanation, submitted_by)
+      VALUES (?, ?, ?, ?, ?)
     ''',
-      [cyrillic.trim(), menksoft.trim(), context?.trim(), submittedBy],
+      [
+        cyrillic.trim(),
+        menksoft.trim(),
+        cleanContext,
+        cleanExplanation,
+        submittedBy,
+      ],
     );
   }
 
@@ -163,18 +182,20 @@ class AppDatabase {
     int limit = 100,
     int minFrequency = 1,
   }) {
+    final safeLimit = limit.clamp(1, 200);
     final results = db.select(
       'SELECT id, cyrillic, frequency, last_context, last_seen FROM unknown_logs WHERE frequency >= ? ORDER BY frequency DESC, last_seen DESC LIMIT ?',
-      [minFrequency, limit],
+      [minFrequency, safeLimit],
     );
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
   /// Gets pending suggestions for moderator review.
   List<Map<String, dynamic>> getPendingSuggestions({int limit = 100}) {
+    final safeLimit = limit.clamp(1, 200);
     final results = db.select(
-      "SELECT id, cyrillic, menksoft_code, context, submitted_by, created_at FROM suggestions WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
-      [limit],
+      "SELECT id, cyrillic, menksoft_code, context, explanation, submitted_by, created_at FROM suggestions WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+      [safeLimit],
     );
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
   }
@@ -242,7 +263,9 @@ class AppDatabase {
     final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [
       suggestionId,
     ]);
-    if (rows.isEmpty) return;
+    if (rows.isEmpty) {
+      return;
+    }
     final sug = rows.first;
     final finalCyrillic = (cyrillic != null && cyrillic.trim().isNotEmpty)
         ? cyrillic.trim()
@@ -250,7 +273,11 @@ class AppDatabase {
     final finalMenksoft = (menksoft != null && menksoft.trim().isNotEmpty)
         ? menksoft.trim()
         : (sug['menksoft_code'] as String);
-    final finalExplanation = explanation ?? (sug['context'] as String?);
+    final rawExplanation = explanation ?? (sug['explanation'] as String?);
+    final finalExplanation =
+        (rawExplanation != null && rawExplanation.trim().isNotEmpty)
+        ? rawExplanation.trim()
+        : null;
 
     addWordDefinition(
       cyrillic: finalCyrillic,
@@ -261,7 +288,7 @@ class AppDatabase {
     );
 
     db.execute(
-      "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = NULL, explanation = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
       [
         finalCyrillic,
         finalMenksoft,
@@ -322,7 +349,7 @@ class AppDatabase {
         cyrillic: sug['cyrillic'] as String,
         menksoft: sug['menksoft_code'] as String?,
         reason: reason ?? 'rejected',
-        details: sug['context'] as String?,
+        details: sug['explanation'] as String?,
         source: 'suggestion',
         sourceId: suggestionId,
         submittedBy: sug['submitted_by'] as String?,
@@ -331,7 +358,7 @@ class AppDatabase {
     }
 
     db.execute(
-      "UPDATE suggestions SET status = 'rejected', moderator_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE suggestions SET status = 'rejected', context = NULL, moderator_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
       [reason, reviewedBy, suggestionId],
     );
   }
@@ -343,18 +370,11 @@ class AppDatabase {
     String? reviewedBy,
   }) {
     final normalized = CyrillicValidator.normalizeWord(cyrillic);
-    final rows = db.select(
-      'SELECT * FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?',
-      [normalized, normalized.toLowerCase()],
-    );
-    final lastContext = rows.isNotEmpty
-        ? (rows.first['last_context'] as String?)
-        : null;
 
     logRejectedWord(
       cyrillic: normalized,
       reason: reason,
-      details: lastContext,
+      details: null,
       source: 'unknown_log',
       reviewedBy: reviewedBy,
     );
@@ -423,7 +443,7 @@ class AppDatabase {
       'SELECT id, cyrillic, frequency, last_context, first_seen, last_seen FROM unknown_logs ORDER BY frequency DESC;',
     );
     final suggestions = db.select(
-      'SELECT id, cyrillic, menksoft_code, context, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;',
+      'SELECT id, cyrillic, menksoft_code, context, explanation, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;',
     );
     final rejectedWords = db.select(
       'SELECT id, cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by, created_at FROM rejected_words ORDER BY id ASC;',

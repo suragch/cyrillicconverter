@@ -26,7 +26,7 @@ final _router = Router()
   ..get('/export/csv', _exportCsvHandler)
   ..get('/export/json', _exportJsonHandler)
   // Public Dictionary lookup
-  ..get('/words/check', _adminCheckWordHandler)
+  ..get('/words/check', _publicCheckWordHandler)
   // Admin / Moderator endpoints (Protected)
   ..get('/admin/words/check', requireModerator(_adminCheckWordHandler))
   ..get('/admin/missing', requireModerator(_adminMissingHandler))
@@ -193,6 +193,18 @@ String _convertDelimiter(String text) {
 final _singleUppercaseCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]$');
 final _capitalizedCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]');
 
+final _emailOrUrlRegex = RegExp(
+  r'(https?://\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b)',
+  caseSensitive: false,
+);
+final _longDigitRegex = RegExp(r'\d{4,}');
+
+String _sanitizeContextSnippet(String snippet) {
+  return snippet
+      .replaceAll(_emailOrUrlRegex, '[...]')
+      .replaceAll(_longDigitRegex, '[...]');
+}
+
 /// Tracks recently logged unknown words per client to prevent frequency spam.
 /// Key format: "$clientKey:$normalizedCyrillic" -> Value: UTC timestamp of last DB log.
 final Map<String, DateTime> _recentUnknownWordLogs = {};
@@ -225,6 +237,7 @@ Future<Response> _convertHandler(Request request) async {
   try {
     final json = jsonDecode(content) as Map<String, dynamic>;
     final text = json['text'] as String? ?? '';
+    final saveContext = json['saveContext'] as bool? ?? true;
 
     final clientKey = request.headers['x-session-id']?.trim().isNotEmpty == true
         ? request.headers['x-session-id']!.trim()
@@ -277,13 +290,17 @@ Future<Response> _convertHandler(Request request) async {
             'options': options,
           });
         } else {
-          // Unknown word - extract a window of text for context
-          final start = (i - 4).clamp(0, rawTokens.length);
-          final end = (i + 5).clamp(0, rawTokens.length);
-          final contextSnippet = rawTokens
-              .sublist(start, end)
-              .map((t) => t.text)
-              .join();
+          // Unknown word - extract a window of text for context if user consented
+          String? contextSnippet;
+          if (saveContext) {
+            final start = (i - 4).clamp(0, rawTokens.length);
+            final end = (i + 5).clamp(0, rawTokens.length);
+            final rawSnippet = rawTokens
+                .sublist(start, end)
+                .map((t) => t.text)
+                .join();
+            contextSnippet = _sanitizeContextSnippet(rawSnippet);
+          }
 
           // Only accept and log strictly Cyrillic text
           if (CyrillicValidator.isCyrillicWord(token.text)) {
@@ -324,7 +341,8 @@ Future<Response> _contributeHandler(Request request) async {
     final json = jsonDecode(content) as Map<String, dynamic>;
     final cyrillic = json['cyrillic'] as String?;
     final menksoft = json['menksoft'] as String?;
-    final context = json['context'] as String? ?? '';
+    final context = json['context'] as String?;
+    final explanation = json['explanation'] as String?;
     final auth = request.context['auth'] as AuthContext?;
 
     if (cyrillic == null || cyrillic.trim().isEmpty) {
@@ -350,6 +368,7 @@ Future<Response> _contributeHandler(Request request) async {
       cyrillic: cyrillic,
       menksoft: menksoft,
       context: context,
+      explanation: explanation,
       submittedBy: auth?.user?.id ?? 'anonymous',
     );
 
@@ -507,6 +526,27 @@ Future<Response> _adminSuggestionsHandler(Request request) async {
   final results = _db.getPendingSuggestions(limit: limit);
   return Response.ok(
     jsonEncode({'suggestions': results}),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+Future<Response> _publicCheckWordHandler(Request request) async {
+  final rawCyrillic = request.url.queryParameters['cyrillic']?.trim() ?? '';
+  if (rawCyrillic.isEmpty) {
+    return Response.ok(
+      jsonEncode({'exists': false, 'definitions': []}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  final cyrillic = CyrillicValidator.normalizeWord(rawCyrillic);
+  final defs = _db.lookupWord(rawCyrillic);
+  return Response.ok(
+    jsonEncode({
+      'cyrillic': cyrillic,
+      'exists': defs.isNotEmpty,
+      'definitions': defs,
+    }),
     headers: {'content-type': 'application/json'},
   );
 }
@@ -748,6 +788,7 @@ Middleware payloadLimitMiddleware({int maxBytes = 10 * 1024 * 1024}) {
 
 Middleware corsMiddleware() {
   final origin = Platform.environment['CORS_ORIGIN'] ?? '*';
+  const allowedHeaders = 'Origin, Content-Type, Authorization, X-Session-ID';
   return (Handler handler) {
     return (Request request) async {
       if (request.method == 'OPTIONS') {
@@ -756,8 +797,7 @@ Middleware corsMiddleware() {
           headers: {
             'Access-Control-Allow-Origin': origin,
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers':
-                'Origin, Content-Type, Authorization',
+            'Access-Control-Allow-Headers': allowedHeaders,
           },
         );
       }
@@ -766,11 +806,25 @@ Middleware corsMiddleware() {
         headers: {
           'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Origin, Content-Type, Authorization',
+          'Access-Control-Allow-Headers': allowedHeaders,
         },
       );
     };
   };
+}
+
+Middleware privacySafeLogRequests() {
+  return logRequests(
+    logger: (String message, bool isError) {
+      // Strip query parameters (e.g. ?cyrillic=...) from logged paths
+      final sanitized = message.replaceAll(RegExp(r'\?[^\s]+'), '');
+      if (isError) {
+        stderr.writeln(sanitized);
+      } else {
+        print(sanitized);
+      }
+    },
+  );
 }
 
 void main(List<String> args) async {
@@ -802,7 +856,7 @@ void main(List<String> args) async {
   _pbUrl = Platform.environment['POCKETBASE_URL'] ?? 'http://127.0.0.1:8090';
 
   final pipeline = Pipeline()
-      .addMiddleware(logRequests())
+      .addMiddleware(privacySafeLogRequests())
       .addMiddleware(payloadLimitMiddleware())
       .addMiddleware(corsMiddleware())
       .addMiddleware(pocketBaseAuth(pbUrl: _pbUrl))

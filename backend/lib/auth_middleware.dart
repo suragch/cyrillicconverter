@@ -18,8 +18,6 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
       final authHeader = request.headers['authorization'];
       if (authHeader != null && authHeader.startsWith('Bearer ')) {
         token = authHeader.substring(7).trim();
-      } else if (request.url.queryParameters.containsKey('token')) {
-        token = request.url.queryParameters['token']?.trim();
       }
 
       if (token == null || token.isEmpty) {

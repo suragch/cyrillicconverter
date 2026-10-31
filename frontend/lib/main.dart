@@ -316,7 +316,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final user =
             (data['user'] as Map<String, dynamic>?) ??
-            {'id': data['id'], 'email': data['email'], 'role': data['role']};
+            {
+              'id': data['id'],
+              'email': data['email'],
+              'role': data['role'],
+              'isAdmin': data['isAdmin'],
+            };
         final newToken = data['token'] as String? ?? savedToken;
         if (newToken != savedToken) {
           await prefs.setString(_authTokenStorageKey, newToken);
@@ -404,6 +409,10 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   bool get _isLoggedIn => _authToken != null && _authToken!.isNotEmpty;
+
+  bool get _isAdmin =>
+      _isLoggedIn &&
+      (_currentUser?['role'] == 'admin' || _currentUser?['isAdmin'] == true);
 
   void _zoomIn() {
     setState(() {
@@ -1175,6 +1184,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return ModeratorPage(
           serverUrl: _serverUrl,
           authToken: _authToken,
+          isAdmin: _isAdmin,
           moderatorId:
               _currentUser?['id'] as String? ??
               _currentUser?['email'] as String?,

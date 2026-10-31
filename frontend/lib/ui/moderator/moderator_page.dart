@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mongol/mongol.dart';
 
+import '../../services/file_downloader.dart';
 import '../../services/latin_ime.dart';
 import '../desktop/components/desktop_button.dart';
 import '../desktop/components/desktop_dialog.dart';
@@ -14,6 +15,7 @@ import 'edit_suggestion_dialog.dart';
 class ModeratorPage extends StatefulWidget {
   final String serverUrl;
   final String? authToken;
+  final bool isAdmin;
   final String? moderatorId;
   final ValueChanged<int>? onCountChanged;
 
@@ -21,6 +23,7 @@ class ModeratorPage extends StatefulWidget {
     super.key,
     required this.serverUrl,
     this.authToken,
+    this.isAdmin = false,
     this.moderatorId,
     this.onCountChanged,
   });
@@ -46,6 +49,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
   int _minFrequency = 2; // Default to frequency >= 2
 
   bool _isLoading = false;
+  bool _isDownloadingDb = false;
   String? _error;
 
   final FocusNode _keyboardFocusNode = FocusNode();
@@ -79,6 +83,63 @@ class _ModeratorPageState extends State<ModeratorPage> {
       _missingIndex = 0;
     });
     await _loadData();
+  }
+
+  Future<void> _downloadDatabase() async {
+    if (_isDownloadingDb) {
+      return;
+    }
+    setState(() {
+      _isDownloadingDb = true;
+    });
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${widget.serverUrl}/admin/db/download'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 60));
+      if (!mounted) {
+        return;
+      }
+      if (res.statusCode == 200) {
+        final dateStr = DateTime.now().toIso8601String().split('T').first;
+        final filename = 'cyrillic_dictionary_full_$dateStr.db';
+        downloadFileFromBytes(
+          res.bodyBytes,
+          filename,
+          'application/vnd.sqlite3',
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$filename амжилттай татагдлаа.'),
+            backgroundColor: DesktopTheme.textPrimary,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Бааз татахад алдаа гарлаа (${res.statusCode})'),
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Холболтын алдаа: $e'),
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloadingDb = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadData() async {
@@ -788,6 +849,15 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ],
 
           const Spacer(),
+
+          if (widget.isAdmin) ...[
+            DesktopButton(
+              label: _isDownloadingDb ? 'Татаж байна...' : 'Бааз татах (.db)',
+              icon: const Icon(Icons.storage_outlined, size: 15),
+              onPressed: _isDownloadingDb ? null : _downloadDatabase,
+            ),
+            const SizedBox(width: 8),
+          ],
 
           DesktopIconButton(
             icon: Icons.refresh,

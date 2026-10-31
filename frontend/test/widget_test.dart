@@ -813,12 +813,33 @@ void main() {
         expect(find.text('Дутуу үгс'), findsOneWidget);
         expect(find.byIcon(Icons.refresh), findsOneWidget);
 
-        // Obsolete / redundant controls are not rendered
+        // Obsolete / redundant controls are not rendered for non-admin moderator
         expect(find.text('Бааз татах (.db)'), findsNothing);
         expect(find.text('Админ нэмэх'), findsNothing);
         expect(find.text('Үг нэмэх'), findsNothing);
         expect(find.textContaining('Товчлуур:'), findsNothing);
         expect(find.byIcon(Icons.cloud_download_outlined), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ModeratorPage shows database download button only when isAdmin is true',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: ModeratorPage(
+                serverUrl: 'http://localhost:8080',
+                authToken: 'mock-admin-token',
+                isAdmin: true,
+                moderatorId: 'admin@example.com',
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Бааз татах (.db)'), findsOneWidget);
       },
     );
 

@@ -35,10 +35,11 @@ final _router = Router()
   ..post('/admin/suggestions/approve', requireModerator(_adminApproveHandler))
   ..post('/admin/suggestions/reject', requireModerator(_adminRejectHandler))
   ..post('/admin/words', requireModerator(_adminAddWordHandler))
-  ..get('/admin/db/download', requireModerator(_adminDbDownloadHandler))
-  ..get('/admin/db/export-json', requireModerator(_adminDbExportJsonHandler))
-  ..post('/admin/db/seed', requireModerator(_adminDbSeedHandler))
-  ..post('/admin/moderators', requireModerator(_adminAddModeratorHandler));
+  // Admin-only endpoints (Protected by requireAdmin)
+  ..get('/admin/db/download', requireAdmin(_adminDbDownloadHandler))
+  ..get('/admin/db/export-json', requireAdmin(_adminDbExportJsonHandler))
+  ..post('/admin/db/seed', requireAdmin(_adminDbSeedHandler))
+  ..post('/admin/moderators', requireAdmin(_adminAddModeratorHandler));
 
 Response _healthHandler(Request request) {
   return Response.ok(
@@ -85,7 +86,9 @@ Future<Response> _loginHandler(Request request) async {
     }
 
     final user = authData.record;
-    final role = user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
+    final rawRole = (user.data['role'] as String?)?.trim() ?? '';
+    final role = rawRole.isNotEmpty ? rawRole : (isSuperuser ? 'admin' : '');
+    final isAdmin = isSuperuser || role == 'admin';
 
     return Response.ok(
       jsonEncode({
@@ -96,6 +99,7 @@ Future<Response> _loginHandler(Request request) async {
               ? user.getStringValue('email')
               : email,
           'role': role,
+          'isAdmin': isAdmin,
         },
       }),
       headers: {'content-type': 'application/json'},
@@ -122,7 +126,8 @@ Response _authMeHandler(Request request) {
   }
 
   final user = auth.user!;
-  final role = user.data['role'] as String? ?? '';
+  final rawRole = (user.data['role'] as String?)?.trim() ?? '';
+  final role = rawRole.isNotEmpty ? rawRole : (auth.isAdmin ? 'admin' : '');
   final email = user.getStringValue('email');
   final id = user.id;
 
@@ -132,8 +137,9 @@ Response _authMeHandler(Request request) {
       'email': email,
       'role': role,
       'isModerator': auth.isModerator,
+      'isAdmin': auth.isAdmin,
       if (auth.token != null) 'token': auth.token,
-      'user': {'id': id, 'email': email, 'role': role},
+      'user': {'id': id, 'email': email, 'role': role, 'isAdmin': auth.isAdmin},
     }),
     headers: {'content-type': 'application/json'},
   );
@@ -724,31 +730,18 @@ Future<Response> _adminAddModeratorHandler(Request request) async {
       pb.authStore.save(authHeader.substring(7).trim(), null);
     }
 
-    RecordModel? createdRecord;
-    try {
-      createdRecord = await pb
-          .collection('_superusers')
-          .create(
-            body: {
-              'email': email,
-              'password': password,
-              'passwordConfirm': password,
-            },
-          );
-    } catch (_) {
-      createdRecord = await pb
-          .collection('users')
-          .create(
-            body: {
-              'email': email,
-              'password': password,
-              'passwordConfirm': password,
-              'role': 'moderator',
-              'emailVisibility': true,
-              'verified': true,
-            },
-          );
-    }
+    final createdRecord = await pb
+        .collection('users')
+        .create(
+          body: {
+            'email': email,
+            'password': password,
+            'passwordConfirm': password,
+            'role': 'moderator',
+            'emailVisibility': true,
+            'verified': true,
+          },
+        );
 
     return Response.ok(
       jsonEncode({

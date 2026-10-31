@@ -1,0 +1,123 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Component to deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - frontend
+          - backend
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine deploy target
+        id: target
+        run: |
+          TARGET="${{ github.event.inputs.target || 'all' }}"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      # --- Backend Verification ---
+      - name: Set up Dart
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'backend'
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install SQLite3 development library
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'backend'
+        run: sudo apt-get update && sudo apt-get install -y sqlite3 libsqlite3-dev
+
+      - name: Verify Backend (Analyze & Test)
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'backend'
+        working-directory: backend
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
+
+      # --- Frontend Verification & Web Build ---
+      - name: Set up Flutter
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'frontend'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify & Build Frontend Web Release
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'frontend'
+        working-directory: frontend
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+          flutter test
+          flutter build web --release
+
+      # --- Single-Session SSH Deployment ---
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "Error: SSH_PRIVATE_KEY and DEPLOY_HOST secrets must be configured in repository settings."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy to Production Server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'me' }}
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          mkdir -p /tmp/deploy_bundle
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then
+            cp -r frontend/build/web /tmp/deploy_bundle/web
+          fi
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
+            mkdir -p /tmp/deploy_bundle/backend
+            rsync -a --exclude='.dart_tool' --exclude='*.db*' --exclude='.git' backend/ /tmp/deploy_bundle/backend/
+          fi
+
+          tar -czf - -C /tmp/deploy_bundle . | ssh -4 -i ~/.ssh/id_deploy -o ServerAliveInterval=15 "$DEPLOY_USER@$DEPLOY_HOST" "
+            set -e
+            STAGING=/tmp/gh_deploy_\$\$
+            mkdir -p \"\$STAGING\"
+            tar -xzf - -C \"\$STAGING\"
+
+            if [ -d \"\$STAGING/web\" ]; then
+              echo '==> Updating Flutter Web frontend...'
+              cp -r \"\$STAGING/web/\"* /var/www/cyrillic.suragch.dev/html/
+            fi
+
+            if [ -d \"\$STAGING/backend\" ]; then
+              echo '==> Updating backend source & rebuilding container...'
+              rsync -a --delete --exclude='*.db*' --exclude='.dart_tool' \
+                \"\$STAGING/backend/\" /home/me/cyrillicconverter/backend/
+              cd /home/me/cyrillicconverter
+              docker compose up -d --build backend
+            fi
+
+            rm -rf \"\$STAGING\"
+            sleep 2
+            curl -sf http://127.0.0.1:8091/health
+            echo ''
+            echo '==> Deployment complete!'
+          "

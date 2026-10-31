@@ -6,9 +6,15 @@ import 'package:pocketbase/pocketbase.dart';
 class AuthContext {
   final RecordModel? user;
   final bool isModerator;
+  final bool isAdmin;
   final String? token;
 
-  const AuthContext({this.user, this.isModerator = false, this.token});
+  const AuthContext({
+    this.user,
+    this.isModerator = false,
+    this.isAdmin = false,
+    this.token,
+  });
 }
 
 Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
@@ -23,6 +29,29 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
       if (token == null || token.isEmpty) {
         return innerHandler(
           request.change(context: {'auth': const AuthContext()}),
+        );
+      }
+
+      // Allow test admin token if set in environment (for unit & integration tests)
+      final testAdminToken = Platform.environment['TEST_ADMIN_TOKEN'];
+      if (testAdminToken != null &&
+          testAdminToken.isNotEmpty &&
+          token == testAdminToken) {
+        return innerHandler(
+          request.change(
+            context: {
+              'auth': AuthContext(
+                user: RecordModel({
+                  'id': 'test-admin',
+                  'email': 'admin@test.com',
+                  'role': 'admin',
+                }),
+                isModerator: true,
+                isAdmin: true,
+                token: token,
+              ),
+            },
+          ),
         );
       }
 
@@ -41,6 +70,7 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
                   'role': 'moderator',
                 }),
                 isModerator: true,
+                isAdmin: false,
                 token: token,
               ),
             },
@@ -70,11 +100,13 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
         }
 
         final user = authRecord.record;
-        final role =
-            user.data['role'] as String? ?? (isSuperuser ? 'admin' : '');
+        final rawRole = (user.data['role'] as String?)?.trim() ?? '';
+        final role = rawRole.isNotEmpty
+            ? rawRole
+            : (isSuperuser ? 'admin' : '');
+        final isAdmin = isSuperuser || role == 'admin';
         // Superusers or designated moderators/admins have moderator privileges
-        final isModerator =
-            isSuperuser || role == 'moderator' || role == 'admin';
+        final isModerator = isAdmin || role == 'moderator';
 
         return await innerHandler(
           request.change(
@@ -82,6 +114,7 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
               'auth': AuthContext(
                 user: user,
                 isModerator: isModerator,
+                isAdmin: isAdmin,
                 token: authRecord.token,
               ),
             },
@@ -102,6 +135,19 @@ Handler requireModerator(Handler innerHandler) {
     if (auth == null || !auth.isModerator) {
       return Response.forbidden(
         jsonEncode({'error': 'Moderator authentication required'}),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    return innerHandler(request);
+  };
+}
+
+Handler requireAdmin(Handler innerHandler) {
+  return (Request request) {
+    final auth = request.context['auth'] as AuthContext?;
+    if (auth == null || !auth.isAdmin) {
+      return Response.forbidden(
+        jsonEncode({'error': 'Admin privileges required'}),
         headers: {'content-type': 'application/json'},
       );
     }

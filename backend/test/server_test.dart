@@ -10,7 +10,9 @@ void main() {
   final host = 'http://127.0.0.1:$port';
   final testDbPath = 'test_server_dictionary.db';
   const testModToken = 'test-moderator-secret-123';
+  const testAdminToken = 'test-admin-secret-456';
   final modHeaders = {'Authorization': 'Bearer $testModToken'};
+  final adminHeaders = {'Authorization': 'Bearer $testAdminToken'};
   late Process p;
 
   setUpAll(() async {
@@ -45,6 +47,7 @@ void main() {
         'PORT': port,
         'DB_PATH': testDbPath,
         'TEST_MODERATOR_TOKEN': testModToken,
+        'TEST_ADMIN_TOKEN': testAdminToken,
       },
     );
     // Listen for startup output
@@ -275,12 +278,32 @@ void main() {
   });
 
   test(
-    'Moderator can download full database (.db snapshot and JSON dump)',
+    'Admin can download full database while normal moderator is forbidden',
     () async {
-      // 1. Download SQLite binary snapshot
-      final resDb = await get(
+      // 1. Normal moderator cannot download full database or JSON dump
+      final modResDb = await get(
         Uri.parse('$host/admin/db/download'),
         headers: modHeaders,
+      );
+      expect(modResDb.statusCode, 403);
+
+      final modResJson = await get(
+        Uri.parse('$host/admin/db/export-json'),
+        headers: modHeaders,
+      );
+      expect(modResJson.statusCode, 403);
+
+      // Normal moderator CAN access moderation queues
+      final modResMissing = await get(
+        Uri.parse('$host/admin/missing'),
+        headers: modHeaders,
+      );
+      expect(modResMissing.statusCode, 200);
+
+      // 2. Admin can download SQLite binary snapshot
+      final resDb = await get(
+        Uri.parse('$host/admin/db/download'),
+        headers: adminHeaders,
       );
       expect(resDb.statusCode, 200);
       expect(
@@ -296,10 +319,10 @@ void main() {
       final headerStr = utf8.decode(resDb.bodyBytes.sublist(0, 16));
       expect(headerStr.startsWith('SQLite format 3'), true);
 
-      // 2. Download full JSON dump
+      // 3. Admin can download full JSON dump
       final resJson = await get(
         Uri.parse('$host/admin/db/export-json'),
-        headers: modHeaders,
+        headers: adminHeaders,
       );
       expect(resJson.statusCode, 200);
       final dump = jsonDecode(resJson.body) as Map<String, dynamic>;

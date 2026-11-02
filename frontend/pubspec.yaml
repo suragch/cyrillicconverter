@@ -1,7 +1,7 @@
 name: frontend
 description: "Cyrillic to Traditional Mongolian Converter and Dictionary"
 publish_to: 'none'
-version: 1.1.0+2
+version: 1.1.1+1
 
 environment:
   sdk: ^3.10.1
@@ -9,10 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   http: ^1.6.0
+  material_ui: ^1.9.0
   mongol_code: ^1.0.4
-  mongol: ^9.0.0
+  mongol: ^11.2.0
   shared_preferences: ^2.5.5
 
 dev_dependencies:

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../desktop/components/desktop_button.dart';
 import '../desktop/components/desktop_dialog.dart';
 import '../desktop/desktop_theme.dart';

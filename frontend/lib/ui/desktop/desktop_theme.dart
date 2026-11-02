@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Desktop-native design system colors, metrics, and typography.
 /// Follows modern desktop software patterns (Linear, VS Code, DeepL Desktop):

@@ -1,3 +1,8 @@
+## 1.1.1 - 2026.11.02
+
+- Update mongol package to 11.2.0. Supports emoji, CJK, and trailing space alignment.
+- Migrate Material design imports across frontend to package:material_ui.
+
 ## 1.1.0 - 2026.11.02
 
 - Mobile-responsive web interface with two-tab segmented toggle and `IndexedStack` state preservation.

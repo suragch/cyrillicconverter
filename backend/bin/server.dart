@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -42,10 +43,26 @@ final _router = Router()
   ..post('/admin/moderators', requireAdmin(_adminAddModeratorHandler));
 
 Response _healthHandler(Request request) {
-  return Response.ok(
-    jsonEncode({'status': 'ok', 'timestamp': DateTime.now().toIso8601String()}),
-    headers: {'content-type': 'application/json'},
-  );
+  try {
+    _db.db.select('SELECT 1;');
+    return Response.ok(
+      jsonEncode({
+        'status': 'ok',
+        'timestamp': DateTime.now().toIso8601String(),
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response(
+      503,
+      body: jsonEncode({
+        'status': 'unavailable',
+        'error': e.toString(),
+        'timestamp': DateTime.now().toIso8601String(),
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  }
 }
 
 Future<Response> _loginHandler(Request request) async {
@@ -211,6 +228,18 @@ String _sanitizeContextSnippet(String snippet) {
       .replaceAll(_longDigitRegex, '[...]');
 }
 
+String _getClientIp(Request request) {
+  final cfIp = request.headers['cf-connecting-ip']?.trim();
+  if (cfIp != null && cfIp.isNotEmpty) {
+    return cfIp;
+  }
+  final xff = request.headers['x-forwarded-for'];
+  if (xff != null && xff.isNotEmpty) {
+    return xff.split(',').first.trim();
+  }
+  return 'anonymous';
+}
+
 /// Tracks recently logged unknown words per client to prevent frequency spam.
 /// Key format: "$clientKey:$normalizedCyrillic" -> Value: UTC timestamp of last DB log.
 final Map<String, DateTime> _recentUnknownWordLogs = {};
@@ -218,24 +247,47 @@ const Duration _unknownWordDedupWindow = Duration(minutes: 30);
 
 bool _shouldLogUnknownWord(String clientKey, String normalizedCyrillic) {
   final now = DateTime.now().toUtc();
-
-  // Prevent unbounded memory growth
-  if (_recentUnknownWordLogs.length > 10000) {
-    _recentUnknownWordLogs.removeWhere(
-      (_, timestamp) => now.difference(timestamp) > _unknownWordDedupWindow,
-    );
-  }
-
   final cacheKey = '$clientKey:$normalizedCyrillic';
-  final lastLogged = _recentUnknownWordLogs[cacheKey];
 
-  if (lastLogged != null &&
-      now.difference(lastLogged) < _unknownWordDedupWindow) {
-    return false;
+  if (_recentUnknownWordLogs.containsKey(cacheKey)) {
+    final lastLogged = _recentUnknownWordLogs[cacheKey]!;
+    if (now.difference(lastLogged) < _unknownWordDedupWindow) {
+      return false;
+    }
+    _recentUnknownWordLogs.remove(cacheKey);
+  } else if (_recentUnknownWordLogs.length >= 5000) {
+    _recentUnknownWordLogs.remove(_recentUnknownWordLogs.keys.first);
   }
 
   _recentUnknownWordLogs[cacheKey] = now;
   return true;
+}
+
+/// In-memory queue and background flusher to decouple unknown word logging from request handling.
+final List<({String text, String? context})> _unknownWordQueue = [];
+bool _isFlushingUnknownWords = false;
+
+void _queueUnknownWord(String text, String? context) {
+  _unknownWordQueue.add((text: text, context: context));
+  _scheduleUnknownWordFlush();
+}
+
+void _scheduleUnknownWordFlush() {
+  if (_isFlushingUnknownWords) {
+    return;
+  }
+  _isFlushingUnknownWords = true;
+  scheduleMicrotask(() {
+    while (_unknownWordQueue.isNotEmpty) {
+      final item = _unknownWordQueue.removeAt(0);
+      try {
+        _db.logUnknownWord(item.text, context: item.context);
+      } catch (e) {
+        print('Warning: Failed to log unknown word: $e');
+      }
+    }
+    _isFlushingUnknownWords = false;
+  });
 }
 
 Future<Response> _convertHandler(Request request) async {
@@ -245,9 +297,11 @@ Future<Response> _convertHandler(Request request) async {
     final text = json['text'] as String? ?? '';
     final saveContext = json['saveContext'] as bool? ?? true;
 
-    final clientKey = request.headers['x-session-id']?.trim().isNotEmpty == true
-        ? request.headers['x-session-id']!.trim()
-        : (request.headers['x-forwarded-for'] ?? 'anonymous');
+    final sessionId = request.headers['x-session-id']?.trim();
+    final clientIp = _getClientIp(request);
+    final clientKey = sessionId != null && sessionId.isNotEmpty
+        ? '$clientIp:$sessionId'
+        : clientIp;
 
     final rawTokens = Tokenizer.tokenize(text);
     final List<Map<String, dynamic>> resultTokens = [];
@@ -315,7 +369,7 @@ Future<Response> _convertHandler(Request request) async {
             // 2. Ensure repeated clicks within 30 minutes from the same session don't increment frequency.
             if (loggedInThisRequest.add(normalized) &&
                 _shouldLogUnknownWord(clientKey, normalized)) {
-              _db.logUnknownWord(token.text, context: contextSnippet);
+              _queueUnknownWord(token.text, contextSnippet);
             }
           }
 
@@ -761,15 +815,14 @@ Future<Response> _adminAddModeratorHandler(Request request) async {
   }
 }
 
-Middleware payloadLimitMiddleware({int maxBytes = 10 * 1024 * 1024}) {
+Middleware payloadLimitMiddleware({int maxBytes = 512 * 1024}) {
   return (Handler handler) {
     return (Request request) async {
       if (request.contentLength != null && request.contentLength! > maxBytes) {
         return Response(
           413,
           body: jsonEncode({
-            'error':
-                'Payload exceeds maximum limit of ${maxBytes ~/ (1024 * 1024)}MB',
+            'error': 'Payload exceeds maximum limit of ${maxBytes ~/ 1024}KB',
           }),
           headers: {'content-type': 'application/json'},
         );

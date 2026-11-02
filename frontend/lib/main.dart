@@ -157,6 +157,8 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   // Active navigation tab
   DesktopNavTab _activeTab = DesktopNavTab.converter;
+  int _mobileSelectedTab =
+      0; // 0 = Cyrillic Input, 1 = Traditional Mongolian Output
   int _moderatorQueueCount = 0;
 
   // Font zoom level (clamped 18..48)
@@ -251,7 +253,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     try {
       final res = await http
           .get(Uri.parse('$_serverUrl/health'))
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 6));
       if (res.statusCode == 200) {
         if (mounted) {
           setState(() => _serverStatusText = 'Сервер: Хэвийн');
@@ -442,6 +444,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   Future<void> _convert({bool force = false}) async {
+    FocusScope.of(context).unfocus();
     final text = _inputTextController.text.trim();
     if (text.isEmpty) {
       return;
@@ -470,17 +473,19 @@ class _ConverterScreenState extends State<ConverterScreen> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('$_serverUrl/convert'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-ID': _sessionId,
-        },
-        body: jsonEncode({
-          'text': text,
-          'saveContext': _saveContextPreference ?? true,
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse('$_serverUrl/convert'),
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Session-ID': _sessionId,
+            },
+            body: jsonEncode({
+              'text': text,
+              'saveContext': _saveContextPreference ?? true,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -513,26 +518,36 @@ class _ConverterScreenState extends State<ConverterScreen> {
           oldSelections: _selectedOptionIndices,
         );
 
-        setState(() {
-          _tokens = parsed;
-          _selectedOptionIndices
-            ..clear()
-            ..addAll(reconciledSelections);
-          _lastConvertedText = text;
-          _isLoading = false;
-          _syncOutputText();
-        });
+        if (mounted) {
+          final isMobile = MediaQuery.sizeOf(context).width < 600;
+          setState(() {
+            _tokens = parsed;
+            _selectedOptionIndices
+              ..clear()
+              ..addAll(reconciledSelections);
+            _lastConvertedText = text;
+            _isLoading = false;
+            _syncOutputText();
+            if (isMobile) {
+              _mobileSelectedTab = 1;
+            }
+          });
+        }
       } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Серверийн алдаа: ${response.statusCode}';
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Серверийн алдаа: ${response.statusCode}';
+          _errorMessage = 'Сүлжээний алдаа гарлаа. Дахин оролдоно уу.';
         });
       }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Сервертэй холбогдож чадсангүй: $e';
-      });
     }
   }
 
@@ -783,12 +798,172 @@ class _ConverterScreenState extends State<ConverterScreen> {
     );
   }
 
+  void _showAmbiguityBottomSheet(
+    BuildContext context,
+    int tokenIndex,
+    Token token,
+  ) {
+    showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: DesktopTheme.panelBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (bottomSheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Кирилл: ${token.original}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: DesktopTheme.textPrimary,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () {
+                        Navigator.of(bottomSheetContext).pop();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: token.options.length,
+                    separatorBuilder: (_, _) {
+                      return const SizedBox(width: 12);
+                    },
+                    itemBuilder: (context, idx) {
+                      final option = token.options[idx];
+                      final isSelected =
+                          (_selectedOptionIndices[tokenIndex] ?? 0) == idx;
+                      final latin = LatinIme.menksoftToLatin(option.menksoft);
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.of(bottomSheetContext).pop(idx);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: 140,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? DesktopTheme.secondarySurface
+                                : DesktopTheme.panelHeaderBackground,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isSelected
+                                  ? DesktopTheme.primary
+                                  : DesktopTheme.border,
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: MongolText(
+                                  option.menksoft,
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontFamily: 'Menksoft',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                latin,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: DesktopTheme.textSecondary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (option.explanation != null &&
+                                  option.explanation!.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  option.explanation!,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: DesktopTheme.textMuted,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(bottomSheetContext).pop(-1);
+                  },
+                  icon: const Icon(
+                    Icons.flag_outlined,
+                    size: 16,
+                    color: DesktopTheme.warning,
+                  ),
+                  label: const Text(
+                    'Алдаа мэдээлэх / Өөр утга нэмэх',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: DesktopTheme.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((choice) {
+      if (choice == null || !mounted) {
+        return;
+      }
+      if (choice == -1) {
+        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
+      } else {
+        setState(() {
+          _selectedOptionIndices[tokenIndex] = choice;
+          _syncOutputText();
+        });
+      }
+    });
+  }
+
   void _showAmbiguityMenu(
     BuildContext context,
     int tokenIndex,
     Token token,
     Offset position,
   ) {
+    if (MediaQuery.sizeOf(context).width < 600) {
+      _showAmbiguityBottomSheet(context, tokenIndex, token);
+      return;
+    }
+
     final items = <PopupMenuEntry<int>>[];
 
     items.add(
@@ -1125,47 +1300,52 @@ class _ConverterScreenState extends State<ConverterScreen> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          body: Column(
-            children: [
-              // Top Desktop Application Header
-              DesktopHeader(
-                activeTab: _activeTab,
-                onTabChanged: (tab) {
-                  if (tab == DesktopNavTab.moderator && !_isLoggedIn) {
-                    _showLoginDialog();
-                    return;
-                  }
-                  setState(() => _activeTab = tab);
-                },
-                moderatorBadgeCount: _moderatorQueueCount,
-                isRestoringSession: _isRestoringSession,
-                isLoggedIn: _isLoggedIn,
-                currentUser: _currentUser,
-                onLoginPressed: _showLoginDialog,
-                onLogoutPressed: _logout,
-                onSettingsPressed: () {
-                  _openPrivacySettingsDialog(isFirstTime: false);
-                },
-                saveContextEnabled: _saveContextPreference,
-              ),
+          body: SafeArea(
+            child: Column(
+              children: [
+                // Top Desktop Application Header
+                DesktopHeader(
+                  activeTab: _activeTab,
+                  onTabChanged: (tab) {
+                    if (tab == DesktopNavTab.moderator && !_isLoggedIn) {
+                      _showLoginDialog();
+                      return;
+                    }
+                    setState(() => _activeTab = tab);
+                  },
+                  moderatorBadgeCount: _moderatorQueueCount,
+                  isRestoringSession: _isRestoringSession,
+                  isLoggedIn: _isLoggedIn,
+                  currentUser: _currentUser,
+                  onLoginPressed: _showLoginDialog,
+                  onLogoutPressed: _logout,
+                  onSettingsPressed: () {
+                    _openPrivacySettingsDialog(isFirstTime: false);
+                  },
+                  saveContextEnabled: _saveContextPreference,
+                ),
 
-              // Main Workspace View
-              Expanded(child: _buildMainView()),
+                // Main Workspace View
+                Expanded(child: _buildMainView()),
 
-              // Bottom Desktop Status Bar (28px)
-              DesktopStatusBar(
-                isLoading: _isLoading,
-                wordCount: _tokens
-                    .where((t) => t.type == 'word' || t.type == 'unknown')
-                    .length,
-                charCount: _inputTextController.text.length,
-                homonymCount: _tokens
-                    .where((t) => t.type == 'word' && t.options.length > 1)
-                    .length,
-                unknownCount: _tokens.where((t) => t.type == 'unknown').length,
-                serverStatus: _serverStatusText,
-              ),
-            ],
+                // Bottom Desktop Status Bar (28px) - hidden on mobile screens (< 600px)
+                if (MediaQuery.sizeOf(context).width >= 600)
+                  DesktopStatusBar(
+                    isLoading: _isLoading,
+                    wordCount: _tokens
+                        .where((t) => t.type == 'word' || t.type == 'unknown')
+                        .length,
+                    charCount: _inputTextController.text.length,
+                    homonymCount: _tokens
+                        .where((t) => t.type == 'word' && t.options.length > 1)
+                        .length,
+                    unknownCount: _tokens
+                        .where((t) => t.type == 'unknown')
+                        .length,
+                    serverStatus: _serverStatusText,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1207,10 +1387,57 @@ class _ConverterScreenState extends State<ConverterScreen> {
     }
   }
 
-  /// Side-by-side split workspace for wide desktop screens, with responsive vertical fallback
+  /// Side-by-side split workspace for wide desktop screens, with responsive segmented tabs for mobile (< 600px)
   Widget _buildConverterWorkspace() {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final isMobile = screenWidth < 600;
+
+        if (isMobile) {
+          return Container(
+            color: DesktopTheme.canvas,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SegmentedButton<int>(
+                  segments: [
+                    const ButtonSegment<int>(
+                      value: 0,
+                      label: Text('Кирилл бичих'),
+                    ),
+                    ButtonSegment<int>(
+                      value: 1,
+                      label: Text(
+                        '$_mongolWordMenksoft бичиг',
+                        style: const TextStyle(fontFamily: 'Menksoft'),
+                      ),
+                    ),
+                  ],
+                  selected: {_mobileSelectedTab},
+                  onSelectionChanged: (newSelection) {
+                    FocusScope.of(context).unfocus();
+                    setState(() {
+                      _mobileSelectedTab = newSelection.first;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: IndexedStack(
+                    index: _mobileSelectedTab,
+                    children: [
+                      _buildCyrillicSourcePane(isMobile: true),
+                      _buildMongolianOutputPane(isMobile: true),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         final isWide = constraints.maxWidth >= 800;
 
         return Container(
@@ -1221,18 +1448,30 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left Pane: Cyrillic Source Editor
-                    Expanded(flex: 1, child: _buildCyrillicSourcePane()),
+                    Expanded(
+                      flex: 1,
+                      child: _buildCyrillicSourcePane(isMobile: false),
+                    ),
                     const SizedBox(width: 16),
                     // Right Pane: Traditional Mongolian Output
-                    Expanded(flex: 1, child: _buildMongolianOutputPane()),
+                    Expanded(
+                      flex: 1,
+                      child: _buildMongolianOutputPane(isMobile: false),
+                    ),
                   ],
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(flex: 4, child: _buildCyrillicSourcePane()),
+                    Expanded(
+                      flex: 4,
+                      child: _buildCyrillicSourcePane(isMobile: false),
+                    ),
                     const SizedBox(height: 12),
-                    Expanded(flex: 6, child: _buildMongolianOutputPane()),
+                    Expanded(
+                      flex: 6,
+                      child: _buildMongolianOutputPane(isMobile: false),
+                    ),
                   ],
                 ),
         );
@@ -1241,7 +1480,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   /// Left Pane: Cyrillic Input Source Panel
-  Widget _buildCyrillicSourcePane() {
+  Widget _buildCyrillicSourcePane({bool isMobile = false}) {
     return Container(
       decoration: BoxDecoration(
         color: DesktopTheme.panelBackground,
@@ -1333,7 +1572,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
                 ),
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) {
+                  setState(() {});
+                },
               ),
             ),
           ),
@@ -1348,6 +1589,24 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   fontSize: 12,
                   color: DesktopTheme.danger,
                 ),
+              ),
+            ),
+
+          if (isMobile)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Үг: ${_inputTextController.text.trim().isEmpty ? 0 : _inputTextController.text.trim().split(RegExp(r'\s+')).length}',
+                    style: DesktopTheme.caption,
+                  ),
+                  Text(
+                    'Тэмдэгт: ${_inputTextController.text.length}',
+                    style: DesktopTheme.caption,
+                  ),
+                ],
               ),
             ),
 
@@ -1367,27 +1626,48 @@ class _ConverterScreenState extends State<ConverterScreen> {
             ),
             child: Row(
               children: [
-                DesktopButton(
-                  onPressed:
-                      (_inputTextController.text.trim().isEmpty ||
-                          _isLoading ||
-                          !_isConversionDirty)
-                      ? null
-                      : () => _convert(),
-                  label: (!_isConversionDirty && _lastConvertedText != null)
-                      ? 'Хөрвүүлсэн'
-                      : 'Хөрвүүлэх',
-                  shortcutHint: '⌘↵',
-                  variant: (!_isConversionDirty && _lastConvertedText != null)
-                      ? DesktopButtonVariant.secondary
-                      : DesktopButtonVariant.primary,
-                  isLoading: _isLoading,
-                ),
-                const Spacer(),
-                Text(
-                  'Тэмдэгт: ${_inputTextController.text.length}',
-                  style: DesktopTheme.caption,
-                ),
+                if (isMobile)
+                  Expanded(
+                    child: DesktopButton(
+                      onPressed:
+                          (_inputTextController.text.trim().isEmpty ||
+                              _isLoading ||
+                              !_isConversionDirty)
+                          ? null
+                          : () => _convert(),
+                      label: (!_isConversionDirty && _lastConvertedText != null)
+                          ? 'Хөрвүүлсэн'
+                          : 'Хөрвүүлэх',
+                      variant:
+                          (!_isConversionDirty && _lastConvertedText != null)
+                          ? DesktopButtonVariant.secondary
+                          : DesktopButtonVariant.primary,
+                      isLoading: _isLoading,
+                    ),
+                  )
+                else ...[
+                  DesktopButton(
+                    onPressed:
+                        (_inputTextController.text.trim().isEmpty ||
+                            _isLoading ||
+                            !_isConversionDirty)
+                        ? null
+                        : () => _convert(),
+                    label: (!_isConversionDirty && _lastConvertedText != null)
+                        ? 'Хөрвүүлсэн'
+                        : 'Хөрвүүлэх',
+                    shortcutHint: '⌘↵',
+                    variant: (!_isConversionDirty && _lastConvertedText != null)
+                        ? DesktopButtonVariant.secondary
+                        : DesktopButtonVariant.primary,
+                    isLoading: _isLoading,
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Тэмдэгт: ${_inputTextController.text.length}',
+                    style: DesktopTheme.caption,
+                  ),
+                ],
               ],
             ),
           ),
@@ -1397,7 +1677,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   /// Right Pane: Traditional Mongolian Output Panel
-  Widget _buildMongolianOutputPane() {
+  Widget _buildMongolianOutputPane({bool isMobile = false}) {
     return Container(
       decoration: BoxDecoration(
         color: DesktopTheme.panelBackground,
@@ -1507,7 +1787,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
           // Panel Footer Status & Legend & Font Resizer
           Container(
-            height: 38,
+            height: isMobile ? 46 : 38,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: const BoxDecoration(
               color: DesktopTheme.panelHeaderBackground,
@@ -1519,31 +1799,54 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 top: BorderSide(color: DesktopTheme.border, width: 1),
               ),
             ),
-            child: Row(
-              children: [
-                if (_tokens.any(
-                  (t) => t.type == 'word' && t.options.length > 1,
-                )) ...[
-                  _buildLegendDot(
-                    color: DesktopTheme.primary,
-                    label: 'Олон утгатай',
+            child: isMobile
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        DesktopButton(
+                          onPressed: () {
+                            setState(() {
+                              _mobileSelectedTab = 0;
+                            });
+                          },
+                          label: 'Засах',
+                          icon: const Icon(Icons.edit_outlined, size: 14),
+                          variant: DesktopButtonVariant.secondary,
+                          isDense: true,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildSplitCopyButton(),
+                        const SizedBox(width: 12),
+                        _buildFontResizer(),
+                      ],
+                    ),
+                  )
+                : Row(
+                    children: [
+                      if (_tokens.any(
+                        (t) => t.type == 'word' && t.options.length > 1,
+                      )) ...[
+                        _buildLegendDot(
+                          color: DesktopTheme.primary,
+                          label: 'Олон утгатай',
+                        ),
+                      ],
+                      if (_tokens.any(
+                            (t) => t.type == 'word' && t.options.length > 1,
+                          ) &&
+                          _tokens.any((t) => t.type == 'unknown'))
+                        const SizedBox(width: 14),
+                      if (_tokens.any((t) => t.type == 'unknown')) ...[
+                        _buildLegendDot(
+                          color: DesktopTheme.danger,
+                          label: 'Тольд үгүй',
+                        ),
+                      ],
+                      const Spacer(),
+                      _buildFontResizer(),
+                    ],
                   ),
-                ],
-                if (_tokens.any(
-                      (t) => t.type == 'word' && t.options.length > 1,
-                    ) &&
-                    _tokens.any((t) => t.type == 'unknown'))
-                  const SizedBox(width: 14),
-                if (_tokens.any((t) => t.type == 'unknown')) ...[
-                  _buildLegendDot(
-                    color: DesktopTheme.danger,
-                    label: 'Тольд үгүй',
-                  ),
-                ],
-                const Spacer(),
-                _buildFontResizer(),
-              ],
-            ),
           ),
         ],
       ),

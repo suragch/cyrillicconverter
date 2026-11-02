@@ -13,6 +13,7 @@ class AppDatabase {
     final db = sqlite3.open(path);
     // Performance optimizations for SQLite
     db.execute('PRAGMA journal_mode = WAL;');
+    db.execute('PRAGMA busy_timeout = 5000;');
     db.execute('PRAGMA synchronous = NORMAL;');
     db.execute('PRAGMA foreign_keys = ON;');
     db.execute('PRAGMA secure_delete = ON;');

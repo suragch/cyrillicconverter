@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:backend/cyrillic_validator.dart';
 import 'package:backend/database.dart';
 import 'package:backend/tokenizer.dart';
@@ -274,5 +275,19 @@ void main() {
         expect(words, isNot(contains('Нохой')));
       },
     );
+
+    test('AppDatabase.open configures PRAGMA busy_timeout to 5000ms', () {
+      const dbPath = 'test_open_timeout.db';
+      final openedDb = AppDatabase.open(dbPath);
+      final res = openedDb.db.select('PRAGMA busy_timeout;');
+      expect(res.first['timeout'], 5000);
+      openedDb.close();
+      for (final suffix in ['', '-wal', '-shm']) {
+        final f = File('$dbPath$suffix');
+        if (f.existsSync()) {
+          f.deleteSync();
+        }
+      }
+    });
   });
 }

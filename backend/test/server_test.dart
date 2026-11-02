@@ -551,4 +551,51 @@ void main() {
       expect(ctx.contains('[...]'), true);
     },
   );
+
+  test(
+    'Composite keying with CF-Connecting-IP and X-Session-ID isolates distinct sessions on same IP',
+    () async {
+      await post(
+        Uri.parse('$host/convert'),
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.195',
+          'X-Session-ID': 'nat-session-1',
+        },
+        body: jsonEncode({'text': 'холбоосынүг'}),
+      );
+      await post(
+        Uri.parse('$host/convert'),
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.195',
+          'X-Session-ID': 'nat-session-2',
+        },
+        body: jsonEncode({'text': 'холбоосынүг'}),
+      );
+
+      final check = await get(
+        Uri.parse('$host/admin/missing?min_frequency=2'),
+        headers: modHeaders,
+      );
+      expect(check.statusCode, 200);
+      final missingList = (jsonDecode(check.body)['missing'] as List);
+      expect(missingList.any((m) => m['cyrillic'] == 'холбоосынүг'), true);
+    },
+  );
+
+  test(
+    'Request exceeding 512KB payload ceiling receives HTTP 413 with KB formatting',
+    () async {
+      final largeBody = jsonEncode({'text': 'а' * (520 * 1024)});
+      final res = await post(
+        Uri.parse('$host/convert'),
+        headers: {'Content-Type': 'application/json'},
+        body: largeBody,
+      );
+      expect(res.statusCode, 413);
+      final json = jsonDecode(res.body);
+      expect(json['error'], 'Payload exceeds maximum limit of 512KB');
+    },
+  );
 }

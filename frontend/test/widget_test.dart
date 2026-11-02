@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +9,7 @@ import 'package:frontend/main.dart';
 import 'package:frontend/services/latin_ime.dart';
 import 'package:frontend/token.dart';
 import 'package:frontend/ui/desktop/components/desktop_button.dart';
+import 'package:frontend/ui/desktop/components/desktop_status_bar.dart';
 import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
 import 'package:frontend/ui/dictionary/dictionary_browse_view.dart';
 import 'package:frontend/ui/moderator/moderator_page.dart';
@@ -1068,5 +1073,367 @@ void main() {
         expect(submittedExplanation, 'туршилтын үг');
       },
     );
+
+    testWidgets(
+      'Mobile screen width < 600px renders SegmentedButton and suppresses DesktopStatusBar',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(390, 844);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Expect SegmentedButton with two tabs
+        expect(find.byType(SegmentedButton<int>), findsOneWidget);
+        expect(find.text('Кирилл бичих'), findsOneWidget);
+
+        // Expect DesktopStatusBar to be suppressed on mobile
+        expect(find.byType(DesktopStatusBar), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Tapping segments in mobile view switches active tab and retains IndexedStack state',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(390, 844);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Enter text into Cyrillic input field
+        final inputFinder = find.byType(TextField);
+        await tester.enterText(inputFinder, 'сайн байна уу');
+        await tester.pumpAndSettle();
+
+        // Verify initial tab is 0 (Cyrillic)
+        final indexedStackFinder = find.byType(IndexedStack);
+        expect(indexedStackFinder, findsOneWidget);
+        final initialStack = tester.widget<IndexedStack>(indexedStackFinder);
+        expect(initialStack.index, 0);
+
+        // Tap the Mongolian tab segment
+        final mongolTabFinder = find.textContaining('бичиг');
+        await tester.tap(mongolTabFinder);
+        await tester.pumpAndSettle();
+
+        // Stack index is now 1 (Mongolian Output)
+        final updatedStack = tester.widget<IndexedStack>(indexedStackFinder);
+        expect(updatedStack.index, 1);
+
+        // "Засах" button is visible in output footer
+        final editButtonFinder = find.widgetWithText(DesktopButton, 'Засах');
+        expect(editButtonFinder, findsOneWidget);
+
+        // Tap "Засах" to return to Cyrillic Input
+        await tester.tap(editButtonFinder);
+        await tester.pumpAndSettle();
+
+        final backStack = tester.widget<IndexedStack>(indexedStackFinder);
+        expect(backStack.index, 0);
+
+        // Text is preserved in input field!
+        expect(find.text('сайн байна уу'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Clicking Convert on mobile converts and transitions active tab to Mongolian view',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(390, 844);
+        HttpOverrides.global = _MockConvertHttpOverrides();
+        addTearDown(() {
+          HttpOverrides.global = null;
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        // Pre-set save context preference so privacy dialog does not block
+        SharedPreferences.setMockInitialValues({
+          'cyrillic_converter_save_context': true,
+        });
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        final inputFinder = find.byType(TextField);
+        await tester.enterText(inputFinder, 'сайн');
+        await tester.pumpAndSettle();
+
+        final convertButton = find.widgetWithText(DesktopButton, 'Хөрвүүлэх');
+        expect(convertButton, findsOneWidget);
+
+        await tester.tap(convertButton);
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        final indexedStackFinder = find.byType(IndexedStack);
+        final currentStack = tester.widget<IndexedStack>(indexedStackFinder);
+        expect(currentStack.index, 1); // Automatically transitioned to tab 1!
+      },
+    );
+
+    testWidgets(
+      'Mobile ambiguity disambiguation opens modal bottom sheet with candidate options',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(390, 844);
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final testToken = Token(
+          type: 'word',
+          original: 'гол',
+          options: [
+            TokenOption(
+              menksoft: LatinIme.latinToMenksoft('gqle'),
+              isDefault: true,
+              explanation: 'гол мөрөн (river)',
+            ),
+            TokenOption(
+              menksoft: LatinIme.latinToMenksoft('gqwl'),
+              isDefault: false,
+              explanation: 'төв гол (center)',
+            ),
+          ],
+        );
+
+        int? selectedIdx;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return ElevatedButton(
+                    onPressed: () {
+                      showModalBottomSheet<int>(
+                        context: context,
+                        backgroundColor: const Color(0xFFF8F9FA),
+                        builder: (sheetContext) {
+                          return SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Кирилл: ${testToken.original}'),
+                                ...testToken.options.asMap().entries.map((
+                                  entry,
+                                ) {
+                                  return ListTile(
+                                    title: Text(
+                                      LatinIme.menksoftToLatin(
+                                        entry.value.menksoft,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      entry.value.explanation ?? '',
+                                    ),
+                                    onTap: () {
+                                      Navigator.pop(sheetContext, entry.key);
+                                    },
+                                  );
+                                }),
+                              ],
+                            ),
+                          );
+                        },
+                      ).then((val) {
+                        selectedIdx = val;
+                      });
+                    },
+                    child: const Text('Open Ambiguity Sheet'),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Ambiguity Sheet'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Кирилл: гол'), findsOneWidget);
+        expect(find.text('гол мөрөн (river)'), findsOneWidget);
+        expect(find.text('төв гол (center)'), findsOneWidget);
+
+        // Tap candidate option 1
+        await tester.tap(find.text('төв гол (center)'));
+        await tester.pumpAndSettle();
+
+        expect(selectedIdx, 1);
+      },
+    );
   });
+}
+
+class _MockConvertHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return _MockHttpClient();
+  }
+}
+
+class _MockHttpClient implements HttpClient {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    return _MockHttpClientRequest();
+  }
+
+  @override
+  Future<HttpClientRequest> postUrl(Uri url) async {
+    return _MockHttpClientRequest();
+  }
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    return _MockHttpClientRequest();
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _MockHttpClientRequest implements HttpClientRequest {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  bool followRedirects = false;
+
+  @override
+  int maxRedirects = 5;
+
+  @override
+  int contentLength = -1;
+
+  @override
+  bool persistentConnection = false;
+
+  @override
+  HttpHeaders get headers => _MockHttpHeaders();
+
+  @override
+  void add(List<int> data) {}
+
+  @override
+  Future addStream(Stream<List<int>> stream) async {
+    await stream.drain();
+  }
+
+  @override
+  Future<HttpClientResponse> close() async {
+    return _MockHttpClientResponse();
+  }
+}
+
+class _MockHttpHeaders implements HttpHeaders {
+  final Map<String, List<String>> _headers = {
+    'content-type': ['application/json; charset=utf-8'],
+  };
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _headers[name.toLowerCase()] = [value.toString()];
+  }
+
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
+    _headers.putIfAbsent(name.toLowerCase(), () => []).add(value.toString());
+  }
+
+  @override
+  void forEach(void Function(String name, List<String> values) action) {
+    _headers.forEach(action);
+  }
+
+  @override
+  List<String>? operator [](String name) => _headers[name.toLowerCase()];
+
+  @override
+  String? value(String name) {
+    final list = _headers[name.toLowerCase()];
+    if (list == null || list.isEmpty) {
+      return null;
+    }
+    return list.first;
+  }
+}
+
+class _MockHttpClientResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  int get statusCode => 200;
+
+  @override
+  String get reasonPhrase => 'OK';
+
+  @override
+  int get contentLength => -1;
+
+  @override
+  bool get persistentConnection => false;
+
+  @override
+  bool get isRedirect => false;
+
+  @override
+  List<RedirectInfo> get redirects => const [];
+
+  @override
+  HttpHeaders get headers => _MockHttpHeaders();
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    final responseBody = jsonEncode({
+      'tokens': [
+        {
+          'type': 'word',
+          'original': 'сайн',
+          'options': [
+            {
+              'menksoft': '\uE2AC\uE281\uE2B5',
+              'isDefault': true,
+              'explanation': null,
+            },
+          ],
+        },
+      ],
+    });
+    return Stream.value(utf8.encode(responseBody)).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
 }

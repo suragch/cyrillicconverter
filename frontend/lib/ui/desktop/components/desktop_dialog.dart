@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../desktop_theme.dart';
 import 'desktop_button.dart';
@@ -26,15 +27,30 @@ class DesktopDialogFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
+    final isCompact = screenWidth < 600;
+    final bottomInset = mediaQuery.viewInsets.bottom;
+
+    final effectiveMargin = isCompact
+        ? EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset)
+        : EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset);
+
+    final horizontalPadding = isCompact ? 32.0 : 48.0;
+    final effectiveWidth = math.min(maxWidth, screenWidth - horizontalPadding);
+
     return Center(
       child: Material(
         color: Colors.transparent,
         child: Container(
-          width: maxWidth,
-          constraints: maxHeight != null
-              ? BoxConstraints(maxHeight: maxHeight!)
-              : null,
-          margin: const EdgeInsets.all(24),
+          width: effectiveWidth,
+          constraints: BoxConstraints(
+            maxWidth: effectiveWidth,
+            maxHeight:
+                maxHeight ??
+                (mediaQuery.size.height - horizontalPadding - bottomInset),
+          ),
+          margin: effectiveMargin,
           decoration: BoxDecoration(
             color: DesktopTheme.panelBackground,
             borderRadius: DesktopTheme.roundedMedium,

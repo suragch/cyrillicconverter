@@ -105,6 +105,7 @@ jobs:
             if [ -d \"\$STAGING/web\" ]; then
               echo '==> Updating Flutter Web frontend...'
               cp -r \"\$STAGING/web/\"* /var/www/cyrillic.suragch.dev/html/
+              chmod -R a+rX /var/www/cyrillic.suragch.dev/html/
             fi
 
             if [ -d \"\$STAGING/backend\" ]; then

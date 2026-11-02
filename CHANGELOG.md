@@ -1,3 +1,9 @@
+## 1.1.2 - 2026.11.02
+
+- Fix font asset permissions (chmod 644) preventing HTTP 403 Forbidden on production web server.
+- Ensure world-readable permissions (a+rX) on deployed web root in deployment workflow.
+- Declare CSS @font-face in index.html for reliable browser font loading.
+
 ## 1.1.1 - 2026.11.02
 
 - Update mongol package to 11.2.0. Supports emoji, CJK, and trailing space alignment.

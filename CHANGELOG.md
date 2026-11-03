@@ -1,3 +1,7 @@
+## 1.1.3 - 2026.11.03
+
+- Update web favicon and PWA app icons with branded Mongolian calligraphy logo.
+
 ## 1.1.2 - 2026.11.02
 
 - Fix font asset permissions (chmod 644) preventing HTTP 403 Forbidden on production web server.

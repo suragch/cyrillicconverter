@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/file_downloader.dart';
 import 'services/latin_ime.dart';
+import 'services/local_dictionary_service.dart';
 import 'token.dart';
 import 'ui/converter_controller.dart';
 import 'ui/desktop/components/desktop_button.dart';
@@ -123,6 +125,44 @@ class ConverterScreen extends StatefulWidget {
     return reconciled;
   }
 
+  /// Resolves unknown tokens using the client-side local dictionary fallback.
+  /// Central backend dictionary entries take strict priority.
+  /// Any central words matching local entries are added to [outRecognizedToPurge].
+  static List<Token> resolveLocalTokens({
+    required List<Token> tokens,
+    required LocalDictionaryService localService,
+    required List<String> outRecognizedToPurge,
+  }) {
+    final result = List<Token>.from(tokens);
+    for (var i = 0; i < result.length; i++) {
+      final t = result[i];
+      final norm = LatinIme.normalizeCyrillic(t.original);
+      if (t.type == 'unknown') {
+        final local = localService.getWord(norm);
+        if (local != null) {
+          result[i] = Token(
+            type: 'word',
+            original: t.original,
+            isLocal: true,
+            options: [
+              TokenOption(
+                menksoft: local.menksoft,
+                isDefault: true,
+                explanation:
+                    local.explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
+              ),
+            ],
+          );
+        }
+      } else if (t.type == 'word') {
+        if (localService.hasWord(norm)) {
+          outRecognizedToPurge.add(norm);
+        }
+      }
+    }
+    return result;
+  }
+
   @override
   State<ConverterScreen> createState() => _ConverterScreenState();
 }
@@ -167,8 +207,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
   List<Token> _tokens = [];
   List<TokenSpanInfo> _tokenSpanInfos = [];
   final Map<int, int> _selectedOptionIndices = {}; // tokenIndex -> optionIndex
-  final Map<String, String> _localOverrides =
-      {}; // lowercase cyrillic -> menksoft code
 
   // Unique session ID generated once per app launch for backend deduplication
   late final String _sessionId = _generateSessionId();
@@ -186,8 +224,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
   /// or if the last conversion resulted in an error.
   bool get _isConversionDirty {
     final currentText = _inputTextController.text.trim();
-    if (currentText.isEmpty) return false;
-    if (_errorMessage != null) return true;
+    if (currentText.isEmpty) {
+      return false;
+    }
+    if (_errorMessage != null) {
+      return true;
+    }
     return currentText != _lastConvertedText;
   }
 
@@ -205,6 +247,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     _outputController = MongolConverterController(
       tokenSpansProvider: () => _tokenSpanInfos,
     );
+    LocalDictionaryService.instance.initialize();
     _checkServerHealth();
     _loadPrivacyPreference();
     _restoreSession();
@@ -490,38 +533,33 @@ class _ConverterScreenState extends State<ConverterScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final List<dynamic> tokenList = data['tokens'] ?? [];
-        final parsed = tokenList.map((j) => Token.fromJson(j)).toList();
+        final rawParsed = tokenList.map((j) => Token.fromJson(j)).toList();
 
-        // Apply any session local overrides
-        for (var i = 0; i < parsed.length; i++) {
-          final t = parsed[i];
-          final norm = LatinIme.normalizeCyrillic(t.original);
-          if (_localOverrides.containsKey(norm)) {
-            parsed[i] = Token(
-              type: 'word',
-              original: t.original,
-              options: [
-                TokenOption(
-                  menksoft: _localOverrides[norm]!,
-                  isDefault: true,
-                  explanation: 'Таны нэмсэн хувилбар',
-                ),
-              ],
-            );
-          }
+        // Apply local dictionary fallback and identify approved words to purge
+        final recognizedToPurge = <String>[];
+        final reconciledTokens = ConverterScreen.resolveLocalTokens(
+          tokens: rawParsed,
+          localService: LocalDictionaryService.instance,
+          outRecognizedToPurge: recognizedToPurge,
+        );
+
+        if (recognizedToPurge.isNotEmpty) {
+          unawaited(
+            LocalDictionaryService.instance.purgeWords(recognizedToPurge),
+          );
         }
 
         // Reconcile homonym selections between old _tokens and parsed newTokens
         final reconciledSelections = ConverterScreen.reconcileHomonymSelections(
           oldTokens: _tokens,
-          newTokens: parsed,
+          newTokens: reconciledTokens,
           oldSelections: _selectedOptionIndices,
         );
 
         if (mounted) {
           final isMobile = MediaQuery.sizeOf(context).width < 600;
           setState(() {
-            _tokens = parsed;
+            _tokens = reconciledTokens;
             _selectedOptionIndices
               ..clear()
               ..addAll(reconciledSelections);
@@ -660,7 +698,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
     final token = info.token;
     final pos = _lastPointerPosition ?? Offset.zero;
 
-    if (token.type == 'unknown') {
+    if (token.isLocal) {
+      _showLocalWordDialog(token, tokenIndex: info.tokenIndex);
+    } else if (token.type == 'unknown') {
       _showFixDialog(token, tokenIndex: info.tokenIndex);
     } else if (token.type == 'word') {
       if (token.options.length > 1) {
@@ -685,7 +725,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
       return;
     }
 
-    if (info.token.type == 'unknown') {
+    if (info.token.isLocal) {
+      _showLocalWordDialog(info.token, tokenIndex: info.tokenIndex);
+    } else if (info.token.type == 'unknown') {
       _showFixDialog(info.token, tokenIndex: info.tokenIndex);
     } else if (info.token.type == 'word') {
       if (info.token.options.length > 1) {
@@ -706,6 +748,52 @@ class _ConverterScreenState extends State<ConverterScreen> {
     }
   }
 
+  void _showLocalWordDialog(Token token, {int? tokenIndex}) {
+    final norm = LatinIme.normalizeCyrillic(token.original);
+    final local = LocalDictionaryService.instance.getWord(norm);
+    final snippet = tokenIndex != null
+        ? _extractContextAroundToken(tokenIndex)
+        : null;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Хувийн толь: "${token.original}"',
+        initialCyrillic: token.original,
+        initialLatin: local?.menksoft != null
+            ? LatinIme.convertToLatin(local!.menksoft)
+            : null,
+        initialExplanation: local?.explanation,
+        initialContext: snippet,
+        submitButtonText: 'Хадгалах',
+        onDelete: () async {
+          await LocalDictionaryService.instance.deleteWord(norm);
+          if (mounted) {
+            _showToast('"$norm" үг хувийн тольноос устгагдлаа.');
+            _convert(force: true);
+          }
+        },
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? context,
+              String? explanation,
+            }) async {
+              await LocalDictionaryService.instance.addOrUpdateWord(
+                cyrillic: cyrillic,
+                menksoft: menksoft,
+                explanation: explanation,
+              );
+              if (mounted) {
+                _showToast('"$cyrillic" үгийн өөрчлөлт хадгалагдлаа.');
+                _convert(force: true);
+              }
+            },
+      ),
+    );
+  }
+
   Future<void> _handleWordAddedOrSuggested({
     required String cyrillic,
     required String menksoft,
@@ -714,32 +802,42 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }) async {
     final normalized = LatinIme.normalizeCyrillic(cyrillic);
 
-    // 1. Immediately update local conversion display in place
-    setState(() {
-      _localOverrides[normalized] = menksoft;
-      for (var i = 0; i < _tokens.length; i++) {
-        if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
-          _tokens[i] = Token(
-            type: 'word',
-            original: _tokens[i].original,
-            options: [
-              TokenOption(
-                menksoft: menksoft,
-                isDefault: true,
-                explanation: explanation ?? 'Таны оруулсан хувилбар',
-              ),
-            ],
-          );
-        }
-      }
-      _syncOutputText();
-    });
-
-    _showToast(
-      '"$cyrillic" үг шууд солигдож, модераторын дараалалд нэмэгдлээ.',
+    // 1. Immediately update persistent local storage
+    await LocalDictionaryService.instance.addOrUpdateWord(
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+      explanation: explanation,
     );
 
-    // 2. Asynchronously submit to remote server for moderator queue
+    // 2. Immediately update local conversion display in place
+    if (mounted) {
+      setState(() {
+        for (var i = 0; i < _tokens.length; i++) {
+          if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
+            _tokens[i] = Token(
+              type: 'word',
+              original: _tokens[i].original,
+              isLocal: true,
+              options: [
+                TokenOption(
+                  menksoft: menksoft,
+                  isDefault: true,
+                  explanation:
+                      explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
+                ),
+              ],
+            );
+          }
+        }
+        _syncOutputText();
+      });
+    }
+
+    _showToast(
+      '"$cyrillic" үг хувийн тольд нэмэгдэж, модераторын дараалалд илгээгдлээ.',
+    );
+
+    // 3. Asynchronously submit to remote server for moderator queue
     try {
       final headers = {'Content-Type': 'application/json'};
       if (_isLoggedIn) {
@@ -1841,6 +1939,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
                         _buildLegendDot(
                           color: DesktopTheme.danger,
                           label: 'Тольд үгүй',
+                        ),
+                      ],
+                      if (_tokens.any((t) => t.isLocal)) ...[
+                        if (_tokens.any(
+                          (t) =>
+                              (t.type == 'word' && t.options.length > 1) ||
+                              t.type == 'unknown',
+                        ))
+                          const SizedBox(width: 14),
+                        _buildLegendDot(
+                          color: Colors.green.shade700,
+                          label: 'Хувийн толь',
                         ),
                       ],
                       const Spacer(),

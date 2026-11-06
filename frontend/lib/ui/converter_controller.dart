@@ -62,6 +62,20 @@ class MongolConverterController extends TextEditingController {
             ),
           ),
         );
+      } else if (token.isLocal) {
+        children.add(
+          TextSpan(
+            text: info.text,
+            style: (style ?? const TextStyle()).copyWith(
+              fontFamily: 'Menksoft',
+              color: isHovered ? Colors.green.shade900 : Colors.green.shade800,
+              backgroundColor: isHovered ? Colors.green.shade50 : null,
+              decoration: TextDecoration.underline,
+              decorationColor: Colors.green.shade700,
+              decorationStyle: TextDecorationStyle.dotted,
+            ),
+          ),
+        );
       } else if (token.type == 'word' && token.options.length > 1) {
         children.add(
           TextSpan(

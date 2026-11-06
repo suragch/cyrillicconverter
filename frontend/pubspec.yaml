@@ -1,7 +1,7 @@
 name: frontend
 description: "Cyrillic to Traditional Mongolian Converter and Dictionary"
 publish_to: 'none'
-version: 1.1.3+1
+version: 1.2.0+1
 
 environment:
   sdk: ^3.10.1

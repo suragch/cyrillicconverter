@@ -3,12 +3,14 @@ class Token {
   final String original; // The Cyrillic text
   final String? menksoft; // Converted text (e.g. vertical punctuation)
   final List<TokenOption> options; // Traditional translations
+  final bool isLocal;
 
   Token({
     required this.type,
     required this.original,
     this.menksoft,
     this.options = const [],
+    this.isLocal = false,
   });
 
   Map<String, dynamic> toJson() {

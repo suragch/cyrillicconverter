@@ -18,6 +18,7 @@ class AddEditWordDialog extends StatefulWidget {
     String? explanation,
   })
   onSubmit;
+  final Future<void> Function()? onDelete;
   final String title;
   final String submitButtonText;
   final bool initialShowKeyboard;
@@ -29,6 +30,7 @@ class AddEditWordDialog extends StatefulWidget {
     this.initialExplanation,
     this.initialContext,
     required this.onSubmit,
+    this.onDelete,
     this.title = 'Үг нэмэх / санал болгох',
     this.submitButtonText = 'Илгээх',
     this.initialShowKeyboard = false,
@@ -149,7 +151,64 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
       }
     } finally {
       if (mounted) {
-        setState(() => _isSubmitting = false);
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleDelete() async {
+    if (_isSubmitting || widget.onDelete == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Устгах уу?'),
+        content: Text(
+          '"${_cyrillicController.text.trim()}" үгийг хувийн тольноос устгах уу?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, false);
+            },
+            child: const Text('Үгүй'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, true);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Устгах'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _isSubmitting = true;
+      });
+      try {
+        await widget.onDelete!();
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isSubmitting = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Устгахад алдаа гарлаа: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -597,6 +656,15 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
           ),
         ),
         actions: [
+          if (widget.onDelete != null) ...[
+            DesktopButton(
+              onPressed: _isSubmitting ? null : _handleDelete,
+              label: 'Устгах',
+              variant: DesktopButtonVariant.danger,
+              isDense: true,
+            ),
+            const Spacer(),
+          ],
           DesktopButton(
             onPressed: () => Navigator.pop(context),
             label: 'Цуцлах',

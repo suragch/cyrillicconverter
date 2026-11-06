@@ -1,3 +1,11 @@
+## 1.2.0 - 2026.11.06
+
+- Implement local-first word persistence using `LocalDictionaryService` backed by `SharedPreferences`.
+- Display locally resolved words in converter with green dotted underline styling.
+- Add "Миний үгс" (My Words) tab in dictionary browse view with search and delete capabilities.
+- Support word deletion in `AddEditWordDialog`.
+- Background silent purge of local words once recognized by central dictionary.
+
 ## 1.1.3 - 2026.11.03
 
 - Update web favicon and PWA app icons with branded Mongolian calligraphy logo.

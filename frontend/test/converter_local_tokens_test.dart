@@ -54,16 +54,60 @@ void main() {
     );
 
     test(
-      'backend word definitions take strict precedence over local entries and queue purge',
+      'local override for known word prepends local option as default and does not purge without pair-match',
       () async {
         await LocalDictionaryService.instance.initialize();
-        // User previously added 'ном' locally
+        // User added a local variant/correction 'ном'
         await LocalDictionaryService.instance.addOrUpdateWord(
           cyrillic: 'ном',
           menksoft: 'ᠬᠠᠭᠤᠴᠢᠨ_ᠨᠣᠮ',
         );
 
-        // Backend returns official word definition
+        // Backend returns official word definition with different spelling
+        final tokens = [
+          Token(
+            type: 'word',
+            original: 'ном',
+            options: [
+              TokenOption(
+                menksoft: 'ᠨᠣᠮ',
+                isDefault: true,
+                explanation: 'Албан ёсны толь',
+              ),
+            ],
+          ),
+        ];
+
+        final purgeList = <String>[];
+        final resolved = ConverterScreen.resolveLocalTokens(
+          tokens: tokens,
+          localService: LocalDictionaryService.instance,
+          outRecognizedToPurge: purgeList,
+        );
+
+        expect(resolved.length, 1);
+        expect(resolved[0].type, 'word');
+        expect(resolved[0].isLocal, isTrue);
+        expect(resolved[0].options.length, 2);
+        expect(resolved[0].options[0].menksoft, 'ᠬᠠᠭᠤᠴᠢᠨ_ᠨᠣᠮ');
+        expect(resolved[0].options[0].isDefault, isTrue);
+        expect(resolved[0].options[1].menksoft, 'ᠨᠣᠮ');
+        expect(resolved[0].options[1].isDefault, isFalse);
+
+        // Not purged yet because backend does not match local menksoft
+        expect(purgeList, isEmpty);
+      },
+    );
+
+    test(
+      'local entry is purged when backend returns matching (cyrillic, menksoft) pair',
+      () async {
+        await LocalDictionaryService.instance.initialize();
+        await LocalDictionaryService.instance.addOrUpdateWord(
+          cyrillic: 'ном',
+          menksoft: 'ᠨᠣᠮ',
+        );
+
         final tokens = [
           Token(
             type: 'word',
@@ -88,12 +132,48 @@ void main() {
         expect(resolved.length, 1);
         expect(resolved[0].type, 'word');
         expect(resolved[0].isLocal, isFalse);
+        expect(resolved[0].options.length, 1);
         expect(resolved[0].options.first.menksoft, 'ᠨᠣᠮ');
-        expect(resolved[0].options.first.explanation, 'Албан ёсны толь');
 
-        // 'ном' was in local storage and recognized by backend -> queued for silent purge
+        // Pair-match -> queued for purge
         expect(purgeList, ['ном']);
       },
     );
+
+    test('local entry older than 30 days is purged automatically', () async {
+      await LocalDictionaryService.instance.initialize();
+      // Add entry with createdAt 31 days ago
+      final oldDate = DateTime.now().subtract(const Duration(days: 31));
+      await LocalDictionaryService.instance.addOrUpdateWord(
+        cyrillic: 'хуучин',
+        menksoft: 'ᠬᠠᠭᠤᠴᠢᠨ',
+        createdAt: oldDate,
+      );
+
+      final tokens = [
+        Token(
+          type: 'word',
+          original: 'хуучин',
+          options: [
+            TokenOption(
+              menksoft: 'ᠡᠪᠦᠷ',
+              isDefault: true,
+              explanation: 'Серверийн өөр бичлэг',
+            ),
+          ],
+        ),
+      ];
+
+      final purgeList = <String>[];
+      final resolved = ConverterScreen.resolveLocalTokens(
+        tokens: tokens,
+        localService: LocalDictionaryService.instance,
+        outRecognizedToPurge: purgeList,
+      );
+
+      expect(resolved.length, 1);
+      expect(resolved[0].isLocal, isFalse);
+      expect(purgeList, ['хуучин']);
+    });
   });
 }

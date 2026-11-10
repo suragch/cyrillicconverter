@@ -15,6 +15,9 @@ CLI binaries, database migration/seeding scripts, and HTTP REST server entry poi
 - `[seed.dart:--db]`: CLI flag to specify target SQLite database file path.
 - `[server.dart:main]`: Primary HTTP REST server daemon listening on `PORT` (default 8080) and serving conversion, lookup, and moderation APIs.
 - `[server.dart:_router]`: Shelf Router defining public, moderator-protected, and admin-only endpoints.
+- `[server.dart:_adminUpdateDefinitionHandler]`: Moderator endpoint replacing an existing definition spelling and explanation in place.
+- `[server.dart:_adminDeleteDefinitionHandler]`: Moderator endpoint deleting a definition spelling and auto-promoting the oldest remaining definition if primary.
+- `[server.dart:_adminSetPrimaryDefinitionHandler]`: Moderator endpoint explicitly promoting a definition to primary (`is_primary = 1`).
 - `[server.dart:payloadLimitMiddleware]`: Shelf middleware enforcing maximum HTTP request body size (default 10MB).
 - `[server.dart:corsMiddleware]`: Shelf middleware handling CORS preflight `OPTIONS` and adding cross-origin headers.
 - `[server.dart:privacySafeLogRequests]`: Shelf logging middleware stripping sensitive query parameters from access logs.

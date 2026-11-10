@@ -100,11 +100,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
   }
 
   Future<void> _addNewDefinition(String cyrillic) async {
+    final existingDefs = _searchResult?['definitions'] as List? ?? [];
     showDialog(
       context: context,
       builder: (ctx) => AddEditWordDialog(
         title: 'Толь бичигт нэмэх: "$cyrillic"',
         initialCyrillic: cyrillic,
+        showPrimaryCheckbox: true,
+        initialIsPrimary: existingDefs.isEmpty,
         submitButtonText: 'Хадгалах',
         onSubmit:
             ({
@@ -112,6 +115,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               required String menksoft,
               String? context,
               String? explanation,
+              String? comment,
+              bool isPrimary = true,
             }) async {
               final res = await http.post(
                 Uri.parse('${widget.serverUrl}/admin/words'),
@@ -120,7 +125,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                   'cyrillic': cyrillic,
                   'menksoft': menksoft,
                   'explanation': explanation,
-                  'isPrimary': false,
+                  'isPrimary': isPrimary,
                   'moderatorId': widget.moderatorId,
                 }),
               );
@@ -141,6 +146,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
       builder: (ctx) => AddEditWordDialog(
         title: 'Шинэ үгийн санал илгээх: "$cyrillic"',
         initialCyrillic: cyrillic,
+        showCommentField: true,
         submitButtonText: 'Санал илгээх',
         onSubmit:
             ({
@@ -148,6 +154,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               required String menksoft,
               String? context,
               String? explanation,
+              String? comment,
+              bool isPrimary = true,
             }) async {
               final res = await http.post(
                 Uri.parse('${widget.serverUrl}/contribute'),
@@ -157,6 +165,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                   'menksoft': menksoft,
                   'context': context ?? '',
                   'explanation': explanation ?? '',
+                  'comment': comment ?? '',
                 }),
               );
 
@@ -177,6 +186,186 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
             },
       ),
     );
+  }
+
+  Future<void> _reportOrEditDefinition(
+    String cyrillic,
+    Map<String, dynamic> def,
+  ) async {
+    final menksoft = def['menksoft'] as String? ?? '';
+    final explanation = def['explanation'] as String?;
+    final latin = LatinIme.menksoftToLatin(menksoft);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Засах / Алдаа мэдээлэх: "$cyrillic"',
+        initialCyrillic: cyrillic,
+        initialLatin: latin,
+        initialExplanation: explanation,
+        showCommentField: true,
+        allowEmptyMenksoftWhenCommentProvided: true,
+        submitButtonText: 'Илгээх',
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? context,
+              String? explanation,
+              String? comment,
+              bool isPrimary = true,
+            }) async {
+              final res = await http.post(
+                Uri.parse('${widget.serverUrl}/contribute'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'cyrillic': cyrillic,
+                  'menksoft': menksoft,
+                  'context': context ?? '',
+                  'explanation': explanation ?? '',
+                  'comment': comment ?? '',
+                  'targetMenksoft': def['menksoft'],
+                }),
+              );
+              if (res.statusCode == 200) {
+                if (mounted) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Алдааны мэдээлэл / Залруулга илгээгдлээ.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } else {
+                throw Exception(res.body);
+              }
+            },
+      ),
+    );
+  }
+
+  Future<void> _setPrimaryDefinition(String cyrillic, String menksoft) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
+        headers: _headers,
+        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+      );
+      if (res.statusCode == 200) {
+        _searchWord(cyrillic);
+      } else {
+        throw Exception(res.body);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Алдаа гарлаа: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editDefinition(
+    String cyrillic,
+    Map<String, dynamic> def,
+  ) async {
+    final menksoft = def['menksoft'] as String? ?? '';
+    final explanation = def['explanation'] as String?;
+    final isPrimary = def['isDefault'] == true || def['isPrimary'] == true;
+    final latin = LatinIme.menksoftToLatin(menksoft);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Бичлэг засах: "$cyrillic"',
+        initialCyrillic: cyrillic,
+        initialLatin: latin,
+        initialExplanation: explanation,
+        showPrimaryCheckbox: true,
+        initialIsPrimary: isPrimary,
+        submitButtonText: 'Хадгалах',
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? context,
+              String? explanation,
+              String? comment,
+              bool isPrimary = true,
+            }) async {
+              final res = await http.post(
+                Uri.parse('${widget.serverUrl}/admin/definitions/update'),
+                headers: _headers,
+                body: jsonEncode({
+                  'cyrillic': cyrillic,
+                  'targetMenksoft': def['menksoft'],
+                  'menksoft': menksoft,
+                  'explanation': explanation,
+                  'isPrimary': isPrimary,
+                }),
+              );
+              if (res.statusCode == 200) {
+                _searchWord(cyrillic);
+              } else {
+                throw Exception(res.body);
+              }
+            },
+      ),
+    );
+  }
+
+  Future<void> _deleteDefinition(String cyrillic, String menksoft) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Устгах уу?'),
+        content: Text(
+          '"$cyrillic" үгийн энэ бичлэгийг толь бичгээс устгах уу?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, false);
+            },
+            child: const Text('Үгүй'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, true);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Устгах'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final res = await http.post(
+          Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
+          headers: _headers,
+          body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+        );
+        if (res.statusCode == 200) {
+          _searchWord(cyrillic);
+        } else {
+          throw Exception(res.body);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Устгахад алдаа гарлаа: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -700,6 +889,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               required String menksoft,
               String? context,
               String? explanation,
+              String? comment,
+              bool isPrimary = true,
             }) async {
               await LocalDictionaryService.instance.addOrUpdateWord(
                 cyrillic: cyrillic,
@@ -918,7 +1109,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                   final def = definitions[index] as Map<String, dynamic>;
                   final menksoft = def['menksoft'] as String? ?? '';
                   final explanation = def['explanation'] as String?;
-                  final isPrimary = def['isPrimary'] == true;
+                  final isPrimary =
+                      def['isDefault'] == true || def['isPrimary'] == true;
                   final latin = LatinIme.menksoftToLatin(menksoft);
 
                   return Container(
@@ -1000,6 +1192,58 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                     ),
                                   ),
                                   const Spacer(),
+                                  if (!_isModerator) ...[
+                                    DesktopIconButton(
+                                      icon: Icons.edit_note,
+                                      tooltip: 'Засах / Алдаа мэдээлэх',
+                                      size: 15,
+                                      onPressed: () {
+                                        _reportOrEditDefinition(
+                                          searchedWord,
+                                          def,
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  if (_isModerator) ...[
+                                    if (!isPrimary) ...[
+                                      DesktopIconButton(
+                                        icon: Icons.star_border,
+                                        tooltip: 'Үндсэн болгох',
+                                        size: 15,
+                                        onPressed: () {
+                                          _setPrimaryDefinition(
+                                            searchedWord,
+                                            menksoft,
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    DesktopIconButton(
+                                      icon: Icons.edit,
+                                      tooltip: 'Засах',
+                                      size: 15,
+                                      onPressed: () {
+                                        _editDefinition(searchedWord, def);
+                                      },
+                                    ),
+                                    const SizedBox(width: 4),
+                                    DesktopIconButton(
+                                      icon: Icons.delete_outline,
+                                      tooltip: 'Устгах',
+                                      size: 15,
+                                      color: DesktopTheme.danger,
+                                      onPressed: () {
+                                        _deleteDefinition(
+                                          searchedWord,
+                                          menksoft,
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
                                   DesktopIconButton(
                                     icon: Icons.copy,
                                     tooltip: 'Юникод хэлбэрээр хуулах',

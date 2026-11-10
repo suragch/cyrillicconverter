@@ -23,10 +23,13 @@ Dart Shelf server with SQLite 3 (WAL mode) powering the Cyrillic to Traditional 
 - `GET /admin/words/check`: Check word status with moderator permissions.
 - `GET /admin/missing`: Get queue of unknown words ordered by occurrence frequency.
 - `POST /admin/missing/reject`: Reject a missing word (logs to `rejected_words`).
-- `GET /admin/suggestions`: Get pending user submissions.
-- `POST /admin/suggestions/approve`: Approve a submission into the dictionary.
+- `GET /admin/suggestions`: Get pending user submissions with total count and 4-tier priority order.
+- `POST /admin/suggestions/approve`: Approve a submission into the dictionary with explicit actions (`add_primary`, `add_secondary`, `replace`, `resolve_only`).
 - `POST /admin/suggestions/reject`: Reject a submission (logs to `rejected_words`).
 - `POST /admin/words`: Directly add or update a dictionary word definition.
+- `POST /admin/definitions/update`: Replace or update an existing definition in place for a Cyrillic word.
+- `POST /admin/definitions/delete`: Delete a definition by Menksoft spelling, promoting the next definition if primary.
+- `POST /admin/definitions/primary`: Set a specific definition as primary for a Cyrillic word.
 - `GET /admin/db/download`: Download atomic SQLite binary snapshot (`.db`).
 - `GET /admin/db/export-json`: Download complete JSON database dump.
 - `POST /admin/db/seed`: Trigger background seed from legacy PocketBase upstream.

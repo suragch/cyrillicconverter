@@ -36,6 +36,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
   int _activeQueueTab = 0; // 0: Suggestions, 1: Missing words
   List<dynamic> _missingWords = [];
   List<dynamic> _suggestions = [];
+  int _totalSuggestions = 0;
+  String? _selectedTargetMenksoft;
 
   // Suggestions Queue State
   int _currentIndex = 0;
@@ -171,10 +173,12 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
         final newSuggestions = (suggData['suggestions'] as List?) ?? [];
         final newMissing = (missingData['missing'] as List?) ?? [];
+        final totalCount = (suggData['total'] as int?) ?? newSuggestions.length;
 
         setState(() {
           _missingWords = newMissing;
           _suggestions = newSuggestions;
+          _totalSuggestions = totalCount;
 
           if (_currentIndex >= _suggestions.length) {
             _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
@@ -186,7 +190,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
           }
         });
 
-        widget.onCountChanged?.call(_suggestions.length);
+        widget.onCountChanged?.call(_totalSuggestions);
 
         _checkWordForCurrent();
         _checkWordForMissing();
@@ -214,6 +218,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
       setState(() {
         _currentWordCheckResult = null;
         _isCheckingCurrentWord = false;
+        _selectedTargetMenksoft = null;
       });
       return;
     }
@@ -224,6 +229,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
       setState(() {
         _currentWordCheckResult = null;
         _isCheckingCurrentWord = false;
+        _selectedTargetMenksoft = null;
       });
       return;
     }
@@ -231,6 +237,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     setState(() {
       _isCheckingCurrentWord = true;
       _currentWordCheckResult = null;
+      _selectedTargetMenksoft = null;
     });
 
     try {
@@ -245,15 +252,31 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final defs = (data['definitions'] as List?) ?? [];
+        final curr = (_currentIndex < _suggestions.length)
+            ? _suggestions[_currentIndex]
+            : null;
+        final target = (curr?['target_menksoft'] as String?)?.trim();
+
+        String? initTarget;
+        if (target != null && target.isNotEmpty) {
+          initTarget = target;
+        } else if (defs.length == 1) {
+          initTarget = (defs.first['menksoft'] as String?)?.trim();
+        }
+
         setState(() {
           _currentWordCheckResult = data;
+          _selectedTargetMenksoft = initTarget;
         });
       }
     } catch (_) {
       // Ignore network errors or 404
     } finally {
       if (mounted) {
-        setState(() => _isCheckingCurrentWord = false);
+        setState(() {
+          _isCheckingCurrentWord = false;
+        });
       }
     }
   }
@@ -274,7 +297,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
     }
   }
 
-  Future<void> _handleApproveCurrent() async {
+  Future<void> _handleApproveCurrent({
+    String action = 'add_primary',
+    String? targetMenksoft,
+  }) async {
     if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
       return;
     }
@@ -288,113 +314,118 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final definitions =
         (_currentWordCheckResult?['definitions'] as List?) ?? [];
 
-    // Check if duplicate of an existing definition
-    final alreadyIdentical = definitions.any(
-      (d) => (d['menksoft'] as String?)?.trim() == menksoft.trim(),
-    );
-    if (alreadyIdentical) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => DesktopDialogFrame(
-          title: 'Аль хэдийн бүртгэгдсэн байна',
-          maxWidth: 420,
-          leadingIcon: const Icon(
-            Icons.info_outline,
-            size: 18,
-            color: DesktopTheme.warning,
-          ),
-          content: Text(
-            '"$cyrillic" үгэнд энэхүү босоо бичлэг толь бичигт аль хэдийн байна.\n'
-            'Та давхардуулж нэмэхдээ итгэлтэй байна уу?',
-            style: DesktopTheme.body,
-          ),
-          actions: [
-            DesktopButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              label: 'Цуцлах',
-              variant: DesktopButtonVariant.secondary,
-              isDense: true,
-            ),
-            const SizedBox(width: 8),
-            DesktopButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              label: 'Батлах',
-              variant: DesktopButtonVariant.primary,
-              isDense: true,
-            ),
-          ],
-        ),
-      );
-      if (proceed != true) {
-        return;
-      }
-    }
+    final finalTargetMenksoft = targetMenksoft ?? _selectedTargetMenksoft;
 
-    if (!mounted) {
-      return;
-    }
-    if (exists && (note == null || note.isEmpty)) {
-      final inputController = TextEditingController();
-      final addedNote = await showDialog<String>(
-        context: context,
-        builder: (ctx) => DesktopDialogFrame(
-          title: 'Олон утгатай үг (Homonym)',
-          maxWidth: 440,
-          leadingIcon: const Icon(
-            Icons.warning_amber_rounded,
-            size: 18,
-            color: DesktopTheme.warning,
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '"$cyrillic" кирилл үг толь бичигт өмнө нь өөр бичлэгтэй бүртгэгдсэн байна.\n'
-                'Энэ хоёрыг хэрэглэгч ялгахын тулд ялгах тэмдэглэл/тайлбар оруулна уу:',
-                style: DesktopTheme.body,
+    // Check if duplicate of an existing definition (only if adding a new definition)
+    if (action != 'replace' && action != 'resolve_only') {
+      final alreadyIdentical = definitions.any(
+        (d) => (d['menksoft'] as String?)?.trim() == menksoft.trim(),
+      );
+      if (alreadyIdentical) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => DesktopDialogFrame(
+            title: 'Аль хэдийн бүртгэгдсэн байна',
+            maxWidth: 420,
+            leadingIcon: const Icon(
+              Icons.info_outline,
+              size: 18,
+              color: DesktopTheme.warning,
+            ),
+            content: Text(
+              '"$cyrillic" үгэнд энэхүү босоо бичлэг толь бичигт аль хэдийн байна.\n'
+              'Та давхардуулж нэмэхдээ итгэлтэй байна уу?',
+              style: DesktopTheme.body,
+            ),
+            actions: [
+              DesktopButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                label: 'Цуцлах',
+                variant: DesktopButtonVariant.secondary,
+                isDense: true,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: inputController,
-                autofocus: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
-                  border: OutlineInputBorder(
-                    borderRadius: DesktopTheme.roundedSmall,
-                  ),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                onSubmitted: (val) => Navigator.pop(ctx, val.trim()),
+              const SizedBox(width: 8),
+              DesktopButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                label: 'Батлах',
+                variant: DesktopButtonVariant.primary,
+                isDense: true,
               ),
             ],
           ),
-          actions: [
-            DesktopButton(
-              onPressed: () => Navigator.pop(ctx, null),
-              label: 'Цуцлах',
-              variant: DesktopButtonVariant.secondary,
-              isDense: true,
-            ),
-            const SizedBox(width: 8),
-            DesktopButton(
-              onPressed: () => Navigator.pop(ctx, inputController.text.trim()),
-              label: 'Батлах',
-              variant: DesktopButtonVariant.primary,
-              isDense: true,
-            ),
-          ],
-        ),
-      );
+        );
+        if (proceed != true) {
+          return;
+        }
+      }
 
-      if (addedNote == null) {
+      if (!mounted) {
         return;
       }
-      note = addedNote.isEmpty ? null : addedNote;
+      if (exists && (note == null || note.isEmpty)) {
+        final inputController = TextEditingController();
+        final addedNote = await showDialog<String>(
+          context: context,
+          builder: (ctx) => DesktopDialogFrame(
+            title: 'Олон утгатай үг (Homonym)',
+            maxWidth: 440,
+            leadingIcon: const Icon(
+              Icons.warning_amber_rounded,
+              size: 18,
+              color: DesktopTheme.warning,
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '"$cyrillic" кирилл үг толь бичигт өмнө нь өөр бичлэгтэй бүртгэгдсэн байна.\n'
+                  'Энэ хоёрыг хэрэглэгч ялгахын тулд ялгах тэмдэглэл/тайлбар оруулна уу:',
+                  style: DesktopTheme.body,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: inputController,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
+                    border: OutlineInputBorder(
+                      borderRadius: DesktopTheme.roundedSmall,
+                    ),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  onSubmitted: (val) => Navigator.pop(ctx, val.trim()),
+                ),
+              ],
+            ),
+            actions: [
+              DesktopButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                label: 'Цуцлах',
+                variant: DesktopButtonVariant.secondary,
+                isDense: true,
+              ),
+              const SizedBox(width: 8),
+              DesktopButton(
+                onPressed: () =>
+                    Navigator.pop(ctx, inputController.text.trim()),
+                label: 'Батлах',
+                variant: DesktopButtonVariant.primary,
+                isDense: true,
+              ),
+            ],
+          ),
+        );
+
+        if (addedNote == null) {
+          return;
+        }
+        note = addedNote.isEmpty ? null : addedNote;
+      }
     }
 
     await _executeApprove(
@@ -402,6 +433,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
       cyrillic: cyrillic,
       menksoft: menksoft,
       explanation: note,
+      action: action,
+      targetMenksoft: finalTargetMenksoft,
     );
   }
 
@@ -410,6 +443,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String? cyrillic,
     String? menksoft,
     String? explanation,
+    String action = 'add_primary',
+    String? targetMenksoft,
   }) async {
     try {
       final res = await http.post(
@@ -420,6 +455,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
           'cyrillic': cyrillic,
           'menksoft': menksoft,
           'explanation': explanation,
+          'action': action,
+          'targetMenksoft': targetMenksoft,
           'moderatorId': widget.moderatorId,
         }),
       );
@@ -497,12 +534,19 @@ class _ModeratorPageState extends State<ModeratorPage> {
   void _advanceQueue() {
     setState(() {
       _suggestions.removeAt(_currentIndex);
+      if (_totalSuggestions > 0) {
+        _totalSuggestions--;
+      }
       if (_currentIndex >= _suggestions.length) {
         _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
       }
     });
-    widget.onCountChanged?.call(_suggestions.length);
-    _checkWordForCurrent();
+    widget.onCountChanged?.call(_totalSuggestions);
+    if (_suggestions.isEmpty && _totalSuggestions > 0) {
+      _loadData();
+    } else {
+      _checkWordForCurrent();
+    }
   }
 
   void _openEditDialog() {
@@ -517,6 +561,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         initialCyrillic: current['cyrillic'] as String,
         initialMenksoft: current['menksoft_code'] as String,
         initialExplanation: current['explanation'] as String?,
+        initialComment: current['comment'] as String?,
+        targetMenksoft:
+            _selectedTargetMenksoft ?? (current['target_menksoft'] as String?),
         serverUrl: widget.serverUrl,
         authToken: widget.authToken,
         onSave:
@@ -525,6 +572,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
               required String menksoft,
               String? explanation,
               required bool andApprove,
+              String action = 'add_primary',
+              String? targetMenksoft,
             }) async {
               if (andApprove) {
                 await _executeApprove(
@@ -532,6 +581,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   cyrillic: cyrillic,
                   menksoft: menksoft,
                   explanation: explanation,
+                  action: action,
+                  targetMenksoft: targetMenksoft,
                 );
               } else {
                 setState(() {
@@ -544,6 +595,94 @@ class _ModeratorPageState extends State<ModeratorPage> {
             },
       ),
     );
+  }
+
+  Future<void> _setPrimaryForWord(String cyrillic, String menksoft) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
+        headers: _headers,
+        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+      );
+      if (res.statusCode == 200) {
+        _checkWordForCurrent();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Алдаа гарлаа: ${res.body}'),
+              backgroundColor: DesktopTheme.danger,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Холболтын алдаа: $e'),
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteDefinitionForWord(
+    String cyrillic,
+    String menksoft,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Устгах уу?'),
+        content: Text(
+          '"$cyrillic" үгийн энэ бичлэгийг толь бичгээс устгах уу?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Цуцлах'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Устгах', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      final res = await http.post(
+        Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
+        headers: _headers,
+        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+      );
+      if (res.statusCode == 200) {
+        _checkWordForCurrent();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Алдаа гарлаа: ${res.body}'),
+              backgroundColor: DesktopTheme.danger,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Холболтын алдаа: $e'),
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+      }
+    }
   }
 
   // --- Missing Words Queue Helpers ---
@@ -664,6 +803,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
     required String menksoft,
     String? context,
     String? explanation,
+    String? comment,
+    bool isPrimary = true,
   }) async {
     final res = await http.post(
       Uri.parse('${widget.serverUrl}/admin/words'),
@@ -672,7 +813,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
         'cyrillic': cyrillic,
         'menksoft': menksoft,
         'explanation': explanation,
-        'isPrimary': true,
+        'isPrimary': isPrimary,
         'moderatorId': widget.moderatorId,
       }),
     );
@@ -722,8 +863,29 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
       if (key == LogicalKeyboardKey.digit1 ||
           key == LogicalKeyboardKey.numpad1) {
-        _handleApproveCurrent();
+        final current = _suggestions[_currentIndex];
+        final menksoft = (current['menksoft_code'] as String?)?.trim() ?? '';
+        final exists = _currentWordCheckResult?['exists'] == true;
+        if (menksoft.isEmpty) {
+          _handleApproveCurrent(action: 'resolve_only');
+        } else if (exists) {
+          _handleApproveCurrent(
+            action: 'replace',
+            targetMenksoft: _selectedTargetMenksoft,
+          );
+        } else {
+          _handleApproveCurrent(action: 'add_primary');
+        }
         return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.digit4 ||
+          key == LogicalKeyboardKey.numpad4) {
+        final current = _suggestions[_currentIndex];
+        final menksoft = (current['menksoft_code'] as String?)?.trim() ?? '';
+        final exists = _currentWordCheckResult?['exists'] == true;
+        if (menksoft.isNotEmpty && exists) {
+          _handleApproveCurrent(action: 'add_secondary');
+          return KeyEventResult.handled;
+        }
       } else if (key == LogicalKeyboardKey.digit2 ||
           key == LogicalKeyboardKey.numpad2) {
         _handleRejectCurrent('Кирилл бичгийн алдаатай');
@@ -834,7 +996,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
           _buildQueueTabBtn(
             index: 0,
             label: 'Хянагдах саналууд',
-            count: _suggestions.length,
+            count: _totalSuggestions,
           ),
           const SizedBox(width: 8),
           _buildQueueTabBtn(
@@ -1126,6 +1288,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     final menksoft = current['menksoft_code'] as String;
     final contextText = current['context'] as String?;
     final explanationText = current['explanation'] as String?;
+    final commentText = (current['comment'] as String?)?.trim();
     final submittedBy = current['submitted_by'] as String?;
     final createdAt = current['created_at'] as String?;
     final latin = LatinIme.menksoftToLatin(menksoft);
@@ -1220,19 +1383,34 @@ class _ModeratorPageState extends State<ModeratorPage> {
                           width: 1,
                         ),
                       ),
-                      alignment: Alignment.topCenter,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: MongolText(
-                          menksoft,
-                          style: const TextStyle(
-                            fontSize: 42,
-                            fontFamily: 'Menksoft',
-                            color: DesktopTheme.textPrimary,
-                          ),
-                        ),
+                      alignment: menksoft.trim().isEmpty
+                          ? Alignment.center
+                          : Alignment.topCenter,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 8,
                       ),
+                      child: menksoft.trim().isEmpty
+                          ? const Text(
+                              'Текстэн мэдээлэл\n(Бичлэг оруулаагүй)',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: DesktopTheme.textMuted,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: MongolText(
+                                menksoft,
+                                style: const TextStyle(
+                                  fontSize: 42,
+                                  fontFamily: 'Menksoft',
+                                  color: DesktopTheme.textPrimary,
+                                ),
+                              ),
+                            ),
                     ),
 
                     const SizedBox(width: 20),
@@ -1379,6 +1557,38 @@ class _ModeratorPageState extends State<ModeratorPage> {
                             ),
                           ),
                           const SizedBox(height: 10),
+                          if (commentText != null &&
+                              commentText.isNotEmpty) ...[
+                            const Text(
+                              'Хэрэглэгчийн тэмдэглэл / Алдааны мэдээлэл (Зөвхөн модераторт):',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: DesktopTheme.warning,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: DesktopTheme.warningSurface,
+                                borderRadius: DesktopTheme.roundedSmall,
+                                border: Border.all(
+                                  color: DesktopTheme.warningBorder,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                commentText,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: DesktopTheme.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                           Text(
                             'Илгээсэн: ${submittedBy ?? 'хэрэглэгч'} • ${createdAt != null ? createdAt.split('T').first : ''}',
                             style: DesktopTheme.caption,
@@ -1417,7 +1627,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                 ),
                               ],
                             )
-                          else if (exists)
+                          else if (exists) ...[
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
@@ -1441,7 +1651,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                       SizedBox(width: 6),
                                       Expanded(
                                         child: Text(
-                                          'Олон утгатай үг (Homonym)',
+                                          'Тольд бүртгэлтэй үг',
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.bold,
@@ -1453,7 +1663,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Тольд одоо ${definitions.length} бичлэг бүртгэлтэй байна. Ялгах тайлбар заавал шаардлагатай.',
+                                    'Тольд одоо ${definitions.length} бичлэг байна. Бичлэг дээр дарж солих зорилтоор сонгох боломжтой.',
                                     style: const TextStyle(
                                       fontSize: 11,
                                       color: Colors.brown,
@@ -1461,8 +1671,210 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                   ),
                                 ],
                               ),
-                            )
-                          else
+                            ),
+                            const SizedBox(height: 8),
+                            ...definitions.map((d) {
+                              final dMap = d as Map<String, dynamic>;
+                              final dMenk =
+                                  (dMap['menksoft'] as String?)?.trim() ?? '';
+                              final dExpl = dMap['explanation'] as String?;
+                              final dIsPrimary =
+                                  dMap['isDefault'] == true ||
+                                  dMap['isPrimary'] == true;
+                              final dLatin = LatinIme.menksoftToLatin(dMenk);
+                              final isSelected =
+                                  _selectedTargetMenksoft == dMenk;
+
+                              return InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedTargetMenksoft = isSelected
+                                        ? null
+                                        : dMenk;
+                                  });
+                                },
+                                borderRadius: DesktopTheme.roundedSmall,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? DesktopTheme.primarySurface
+                                        : DesktopTheme.canvas,
+                                    borderRadius: DesktopTheme.roundedSmall,
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? DesktopTheme.primary
+                                          : DesktopTheme.border,
+                                      width: isSelected ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 60,
+                                        decoration: BoxDecoration(
+                                          color: DesktopTheme.panelBackground,
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                          border: Border.all(
+                                            color: DesktopTheme.borderMedium,
+                                          ),
+                                        ),
+                                        alignment: Alignment.topCenter,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 2,
+                                        ),
+                                        child: SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: MongolText(
+                                            dMenk,
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontFamily: 'Menksoft',
+                                              color: DesktopTheme.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                if (dIsPrimary)
+                                                  Container(
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                          right: 6,
+                                                        ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 4,
+                                                          vertical: 1,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: DesktopTheme
+                                                          .primarySurface,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            3,
+                                                          ),
+                                                      border: Border.all(
+                                                        color: DesktopTheme
+                                                            .primary
+                                                            .withValues(
+                                                              alpha: 0.3,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                    child: const Text(
+                                                      'Үндсэн',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: DesktopTheme
+                                                            .primary,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                if (isSelected)
+                                                  Container(
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                          right: 6,
+                                                        ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 4,
+                                                          vertical: 1,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color:
+                                                          Colors.blue.shade100,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            3,
+                                                          ),
+                                                    ),
+                                                    child: const Text(
+                                                      'Сонгосон',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors.blue,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                Expanded(
+                                                  child: Text(
+                                                    dLatin.isEmpty
+                                                        ? '—'
+                                                        : dLatin,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontFamily: 'monospace',
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (!dIsPrimary)
+                                                  DesktopIconButton(
+                                                    icon: Icons.star_border,
+                                                    tooltip: 'Үндсэн болгох',
+                                                    size: 13,
+                                                    onPressed: () {
+                                                      _setPrimaryForWord(
+                                                        cyrillic,
+                                                        dMenk,
+                                                      );
+                                                    },
+                                                  ),
+                                                DesktopIconButton(
+                                                  icon: Icons.delete_outline,
+                                                  tooltip: 'Устгах',
+                                                  size: 13,
+                                                  color: DesktopTheme.danger,
+                                                  onPressed: () {
+                                                    _deleteDefinitionForWord(
+                                                      cyrillic,
+                                                      dMenk,
+                                                    );
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                            if (dExpl != null &&
+                                                dExpl.isNotEmpty) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                dExpl,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: DesktopTheme
+                                                      .textSecondary,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
+                          ] else
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
@@ -1509,21 +1921,66 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    if (menksoft.trim().isNotEmpty && !exists)
+                      DesktopButton(
+                        onPressed: () {
+                          _handleApproveCurrent(action: 'add_primary');
+                        },
+                        label: 'Зөвшөөрөх (Үндсэн)',
+                        shortcutHint: '1',
+                        variant: DesktopButtonVariant.primary,
+                      ),
+                    if (menksoft.trim().isNotEmpty && exists) ...[
+                      DesktopButton(
+                        onPressed: () {
+                          _handleApproveCurrent(
+                            action: 'replace',
+                            targetMenksoft: _selectedTargetMenksoft,
+                          );
+                        },
+                        label: 'Одоогийн бичлэгийг солих',
+                        shortcutHint: '1',
+                        variant: DesktopButtonVariant.primary,
+                      ),
+                      DesktopButton(
+                        onPressed: () {
+                          _handleApproveCurrent(action: 'add_secondary');
+                        },
+                        label: 'Нэмэлт хувилбараар нэмэх',
+                        shortcutHint: '4',
+                        variant: DesktopButtonVariant.secondary,
+                      ),
+                      DesktopButton(
+                        onPressed: () {
+                          _handleApproveCurrent(action: 'add_primary');
+                        },
+                        label: 'Үндсэн болгож нэмэх',
+                        variant: DesktopButtonVariant.secondary,
+                      ),
+                    ],
+                    if (menksoft.trim().isEmpty ||
+                        ((current['comment'] as String?)?.trim().isNotEmpty ==
+                            true))
+                      DesktopButton(
+                        onPressed: () {
+                          _handleApproveCurrent(action: 'resolve_only');
+                        },
+                        label: 'Шийдвэрлэсэн (Хаах)',
+                        shortcutHint: menksoft.trim().isEmpty ? '1' : null,
+                        variant: DesktopButtonVariant.secondary,
+                      ),
                     DesktopButton(
-                      onPressed: _handleApproveCurrent,
-                      label: 'Зөвшөөрөх',
-                      shortcutHint: '1',
-                      variant: DesktopButtonVariant.primary,
-                    ),
-                    DesktopButton(
-                      onPressed: () =>
-                          _handleRejectCurrent('Кирилл бичгийн алдаатай'),
+                      onPressed: () {
+                        _handleRejectCurrent('Кирилл бичгийн алдаатай');
+                      },
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
-                      onPressed: () => _handleRejectCurrent('Кирилл үг биш'),
+                      onPressed: () {
+                        _handleRejectCurrent('Кирилл үг биш');
+                      },
                       label: 'Үг биш',
                       shortcutHint: '3',
                       variant: DesktopButtonVariant.danger,

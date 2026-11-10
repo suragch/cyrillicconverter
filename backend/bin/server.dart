@@ -36,6 +36,18 @@ final _router = Router()
   ..post('/admin/suggestions/approve', requireModerator(_adminApproveHandler))
   ..post('/admin/suggestions/reject', requireModerator(_adminRejectHandler))
   ..post('/admin/words', requireModerator(_adminAddWordHandler))
+  ..post(
+    '/admin/definitions/update',
+    requireModerator(_adminUpdateDefinitionHandler),
+  )
+  ..post(
+    '/admin/definitions/delete',
+    requireModerator(_adminDeleteDefinitionHandler),
+  )
+  ..post(
+    '/admin/definitions/primary',
+    requireModerator(_adminSetPrimaryDefinitionHandler),
+  )
   // Admin-only endpoints (Protected by requireAdmin)
   ..get('/admin/db/download', requireAdmin(_adminDbDownloadHandler))
   ..get('/admin/db/export-json', requireAdmin(_adminDbExportJsonHandler))
@@ -403,6 +415,8 @@ Future<Response> _contributeHandler(Request request) async {
     final menksoft = json['menksoft'] as String?;
     final context = json['context'] as String?;
     final explanation = json['explanation'] as String?;
+    final comment = json['comment'] as String?;
+    final targetMenksoft = json['targetMenksoft'] as String?;
     final auth = request.context['auth'] as AuthContext?;
 
     if (cyrillic == null || cyrillic.trim().isEmpty) {
@@ -418,17 +432,33 @@ Future<Response> _contributeHandler(Request request) async {
         headers: {'content-type': 'application/json'},
       );
     }
-    if (menksoft == null || menksoft.trim().isEmpty) {
+
+    final cleanMenksoft = menksoft?.trim() ?? '';
+    final cleanComment = comment?.trim() ?? '';
+
+    if (cleanComment.length > 500) {
       return Response.badRequest(
-        body: jsonEncode({'error': 'menksoft is required'}),
+        body: jsonEncode({
+          'error':
+              'Тайлбар 500 тэмдэгтээс хэтрэхгүй байх ёстой (Comment must not exceed 500 characters)',
+        }),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+
+    if (cleanMenksoft.isEmpty && cleanComment.isEmpty) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'menksoft or comment is required'}),
       );
     }
 
     _db.addSuggestion(
       cyrillic: cyrillic,
-      menksoft: menksoft,
+      menksoft: cleanMenksoft,
       context: context,
       explanation: explanation,
+      comment: cleanComment.isNotEmpty ? cleanComment : null,
+      targetMenksoft: targetMenksoft,
       submittedBy: auth?.user?.id ?? 'anonymous',
     );
 
@@ -584,8 +614,9 @@ Future<Response> _adminSuggestionsHandler(Request request) async {
   final limit =
       int.tryParse(request.url.queryParameters['limit'] ?? '100') ?? 100;
   final results = _db.getPendingSuggestions(limit: limit);
+  final total = _db.getPendingSuggestionsCount();
   return Response.ok(
-    jsonEncode({'suggestions': results}),
+    jsonEncode({'suggestions': results, 'total': total}),
     headers: {'content-type': 'application/json'},
   );
 }
@@ -642,6 +673,8 @@ Future<Response> _adminApproveHandler(Request request) async {
     final cyrillic = json['cyrillic'] as String?;
     final menksoft = json['menksoft'] as String?;
     final explanation = json['explanation'] as String?;
+    final action = (json['action'] as String?)?.trim() ?? 'add_primary';
+    final targetMenksoft = json['targetMenksoft'] as String?;
 
     final auth = request.context['auth'] as AuthContext?;
     final verifiedBy =
@@ -656,6 +689,8 @@ Future<Response> _adminApproveHandler(Request request) async {
       cyrillic: cyrillic,
       menksoft: menksoft,
       explanation: explanation,
+      action: action,
+      targetMenksoft: targetMenksoft,
     );
     return Response.ok(
       jsonEncode({'success': true, 'verifiedBy': verifiedBy}),
@@ -753,6 +788,102 @@ Future<Response> _adminAddWordHandler(Request request) async {
 
     return Response.ok(
       jsonEncode({'success': true, 'wordId': wordId}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
+  }
+}
+
+Future<Response> _adminUpdateDefinitionHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = (json['cyrillic'] as String?)?.trim() ?? '';
+    final targetMenksoft = (json['targetMenksoft'] as String?)?.trim() ?? '';
+    final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
+    final explanation = json['explanation'] as String?;
+    final isPrimary = json['isPrimary'] as bool?;
+
+    if (cyrillic.isEmpty || menksoft.isEmpty) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
+      );
+    }
+
+    final auth = request.context['auth'] as AuthContext?;
+    final verifiedBy =
+        auth?.user?.id ?? auth?.user?.getStringValue('email') ?? 'moderator';
+
+    _db.replaceDefinition(
+      cyrillic: cyrillic,
+      targetMenksoft: targetMenksoft,
+      newMenksoft: menksoft,
+      explanation: explanation,
+      isPrimary: isPrimary,
+      verifiedBy: verifiedBy,
+    );
+
+    return Response.ok(
+      jsonEncode({'success': true, 'verifiedBy': verifiedBy}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
+  }
+}
+
+Future<Response> _adminDeleteDefinitionHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = (json['cyrillic'] as String?)?.trim() ?? '';
+    final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
+
+    if (cyrillic.isEmpty || menksoft.isEmpty) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
+      );
+    }
+
+    final deleted = _db.deleteDefinition(
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+    );
+    return Response.ok(
+      jsonEncode({'success': true, 'deleted': deleted}),
+      headers: {'content-type': 'application/json'},
+    );
+  } catch (e) {
+    return Response.badRequest(
+      body: jsonEncode({'error': 'Invalid request: $e'}),
+    );
+  }
+}
+
+Future<Response> _adminSetPrimaryDefinitionHandler(Request request) async {
+  final content = await request.readAsString();
+  try {
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final cyrillic = (json['cyrillic'] as String?)?.trim() ?? '';
+    final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
+
+    if (cyrillic.isEmpty || menksoft.isEmpty) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
+      );
+    }
+
+    final updated = _db.setPrimaryDefinition(
+      cyrillic: cyrillic,
+      menksoft: menksoft,
+    );
+    return Response.ok(
+      jsonEncode({'success': true, 'updated': updated}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {

@@ -136,27 +136,60 @@ class ConverterScreen extends StatefulWidget {
     final result = List<Token>.from(tokens);
     for (var i = 0; i < result.length; i++) {
       final t = result[i];
-      final norm = LatinIme.normalizeCyrillic(t.original);
-      if (t.type == 'unknown') {
+      if (t.type == 'unknown' || t.type == 'word') {
+        final norm = LatinIme.normalizeCyrillic(t.original);
         final local = localService.getWord(norm);
         if (local != null) {
-          result[i] = Token(
-            type: 'word',
-            original: t.original,
-            isLocal: true,
-            options: [
-              TokenOption(
+          if (DateTime.now().difference(local.createdAt).inDays >= 30) {
+            outRecognizedToPurge.add(norm);
+            continue;
+          }
+
+          if (t.type == 'unknown') {
+            if (local.menksoft.trim().isNotEmpty) {
+              result[i] = Token(
+                type: 'word',
+                original: t.original,
+                isLocal: true,
+                options: [
+                  TokenOption(
+                    menksoft: local.menksoft,
+                    isDefault: true,
+                    explanation:
+                        local.explanation ??
+                        'Хувийн толь (Таны оруулсан хувилбар)',
+                  ),
+                ],
+              );
+            }
+          } else if (t.type == 'word') {
+            final matchesServer = t.options.any(
+              (opt) => opt.menksoft.trim() == local.menksoft.trim(),
+            );
+            if (matchesServer) {
+              outRecognizedToPurge.add(norm);
+            } else if (local.menksoft.trim().isNotEmpty) {
+              final demotedOptions = t.options.map((opt) {
+                return TokenOption(
+                  menksoft: opt.menksoft,
+                  explanation: opt.explanation,
+                  isDefault: false,
+                );
+              }).toList();
+              final localOption = TokenOption(
                 menksoft: local.menksoft,
                 isDefault: true,
                 explanation:
                     local.explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
-              ),
-            ],
-          );
-        }
-      } else if (t.type == 'word') {
-        if (localService.hasWord(norm)) {
-          outRecognizedToPurge.add(norm);
+              );
+              result[i] = Token(
+                type: 'word',
+                original: t.original,
+                isLocal: true,
+                options: [localOption, ...demotedOptions],
+              );
+            }
+          }
         }
       }
     }
@@ -698,7 +731,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     final token = info.token;
     final pos = _lastPointerPosition ?? Offset.zero;
 
-    if (token.isLocal) {
+    if (token.isLocal && token.options.length == 1) {
       _showLocalWordDialog(token, tokenIndex: info.tokenIndex);
     } else if (token.type == 'unknown') {
       _showFixDialog(token, tokenIndex: info.tokenIndex);
@@ -725,7 +758,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       return;
     }
 
-    if (info.token.isLocal) {
+    if (info.token.isLocal && info.token.options.length == 1) {
       _showLocalWordDialog(info.token, tokenIndex: info.tokenIndex);
     } else if (info.token.type == 'unknown') {
       _showFixDialog(info.token, tokenIndex: info.tokenIndex);
@@ -779,12 +812,19 @@ class _ConverterScreenState extends State<ConverterScreen> {
               required String menksoft,
               String? context,
               String? explanation,
+              String? comment,
+              bool isPrimary = true,
             }) async {
               await LocalDictionaryService.instance.addOrUpdateWord(
                 cyrillic: cyrillic,
                 menksoft: menksoft,
                 explanation: explanation,
               );
+              for (final entry in _tokens.asMap().entries) {
+                if (LatinIme.normalizeCyrillic(entry.value.original) == norm) {
+                  _selectedOptionIndices.remove(entry.key);
+                }
+              }
               if (mounted) {
                 _showToast('"$cyrillic" үгийн өөрчлөлт хадгалагдлаа.');
                 _convert(force: true);
@@ -799,43 +839,67 @@ class _ConverterScreenState extends State<ConverterScreen> {
     required String menksoft,
     String? context,
     String? explanation,
+    String? comment,
+    bool isPrimary = true,
+    String? targetMenksoft,
   }) async {
     final normalized = LatinIme.normalizeCyrillic(cyrillic);
+    final cleanMenksoft = menksoft.trim();
+    final isTextOnly = cleanMenksoft.isEmpty;
 
-    // 1. Immediately update persistent local storage
-    await LocalDictionaryService.instance.addOrUpdateWord(
-      cyrillic: cyrillic,
-      menksoft: menksoft,
-      explanation: explanation,
-    );
+    if (!isTextOnly) {
+      // 1. Immediately update persistent local storage
+      await LocalDictionaryService.instance.addOrUpdateWord(
+        cyrillic: cyrillic,
+        menksoft: cleanMenksoft,
+        explanation: explanation,
+      );
 
-    // 2. Immediately update local conversion display in place
-    if (mounted) {
-      setState(() {
-        for (var i = 0; i < _tokens.length; i++) {
-          if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
-            _tokens[i] = Token(
-              type: 'word',
-              original: _tokens[i].original,
-              isLocal: true,
-              options: [
-                TokenOption(
-                  menksoft: menksoft,
-                  isDefault: true,
-                  explanation:
-                      explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
-                ),
-              ],
-            );
-          }
+      // Clear any previously saved option index for this word so index 0 (local) is active
+      for (final entry in _tokens.asMap().entries) {
+        if (LatinIme.normalizeCyrillic(entry.value.original) == normalized) {
+          _selectedOptionIndices.remove(entry.key);
         }
-        _syncOutputText();
-      });
-    }
+      }
 
-    _showToast(
-      '"$cyrillic" үг хувийн тольд нэмэгдэж, модераторын дараалалд илгээгдлээ.',
-    );
+      // 2. Immediately update local conversion display in place
+      if (mounted) {
+        setState(() {
+          for (var i = 0; i < _tokens.length; i++) {
+            if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
+              final demotedOptions = _tokens[i].options.map((opt) {
+                return TokenOption(
+                  menksoft: opt.menksoft,
+                  explanation: opt.explanation,
+                  isDefault: false,
+                );
+              }).toList();
+              final localOption = TokenOption(
+                menksoft: cleanMenksoft,
+                isDefault: true,
+                explanation:
+                    explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
+              );
+              _tokens[i] = Token(
+                type: 'word',
+                original: _tokens[i].original,
+                isLocal: true,
+                options: [localOption, ...demotedOptions],
+              );
+            }
+          }
+          _syncOutputText();
+        });
+      }
+
+      _showToast(
+        '"$cyrillic" үг хувийн тольд нэмэгдэж, модераторын дараалалд илгээгдлээ.',
+      );
+    } else {
+      _showToast(
+        '"$cyrillic" үгийн алдааны мэдээлэл модераторын дараалалд илгээгдлээ.',
+      );
+    }
 
     // 3. Asynchronously submit to remote server for moderator queue
     try {
@@ -849,9 +913,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
         headers: headers,
         body: jsonEncode({
           'cyrillic': cyrillic,
-          'menksoft': menksoft,
+          'menksoft': cleanMenksoft,
           'context': context ?? '',
           'explanation': explanation ?? '',
+          'comment': comment ?? '',
+          'targetMenksoft': targetMenksoft ?? '',
         }),
       );
       _fetchModeratorCount();
@@ -859,8 +925,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
       debugPrint('Background submission error: $e');
     }
 
-    // Force re-conversion to refresh tokens and database recognition
-    _convert(force: true);
+    if (!isTextOnly) {
+      _convert(force: true);
+    }
   }
 
   void _showFixDialog(Token token, {int? tokenIndex}) {
@@ -873,25 +940,90 @@ class _ConverterScreenState extends State<ConverterScreen> {
         title: 'Үл мэдэгдэх үг: "${token.original}"',
         initialCyrillic: token.original,
         initialContext: snippet,
+        showCommentField: true,
         submitButtonText: 'Нэмэх & Илгээх',
         onSubmit: _handleWordAddedOrSuggested,
       ),
     );
   }
 
-  void _showFlagErrorDialog(Token token, {int? tokenIndex}) {
+  void _showAddVariantDialog(Token token, {int? tokenIndex}) {
     final snippet = tokenIndex != null
         ? _extractContextAroundToken(tokenIndex)
         : null;
     showDialog(
       context: context,
       builder: (ctx) => AddEditWordDialog(
-        title: 'Алдаа мэдээлэх: "${token.original}"',
+        title: 'Өөр хувилбар нэмэх: "${token.original}"',
         initialCyrillic: token.original,
-        initialExplanation: 'Залруулга / Алдаатай байна',
+        initialLatin: '',
         initialContext: snippet,
+        showCommentField: true,
+        submitButtonText: 'Илгээх',
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? context,
+              String? explanation,
+              String? comment,
+              bool isPrimary = true,
+            }) => _handleWordAddedOrSuggested(
+              cyrillic: cyrillic,
+              menksoft: menksoft,
+              context: context,
+              explanation: explanation,
+              comment: comment,
+              isPrimary: isPrimary,
+            ),
+      ),
+    );
+  }
+
+  void _showFlagErrorDialog(
+    Token token, {
+    int? tokenIndex,
+    TokenOption? selectedOption,
+  }) {
+    final snippet = tokenIndex != null
+        ? _extractContextAroundToken(tokenIndex)
+        : null;
+    final targetMenksoft = selectedOption?.menksoft;
+    final initialLatin = targetMenksoft != null
+        ? LatinIme.convertToLatin(targetMenksoft)
+        : (token.options.isNotEmpty
+              ? LatinIme.convertToLatin(token.options.first.menksoft)
+              : null);
+    final initialExplanation = selectedOption?.explanation;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AddEditWordDialog(
+        title: 'Алдаа мэдээлэх / Засах: "${token.original}"',
+        initialCyrillic: token.original,
+        initialLatin: initialLatin,
+        initialExplanation: initialExplanation,
+        initialContext: snippet,
+        showCommentField: true,
+        allowEmptyMenksoftWhenCommentProvided: true,
         submitButtonText: 'Залруулга илгээх',
-        onSubmit: _handleWordAddedOrSuggested,
+        onSubmit:
+            ({
+              required String cyrillic,
+              required String menksoft,
+              String? context,
+              String? explanation,
+              String? comment,
+              bool isPrimary = true,
+            }) => _handleWordAddedOrSuggested(
+              cyrillic: cyrillic,
+              menksoft: menksoft,
+              context: context,
+              explanation: explanation,
+              comment: comment,
+              isPrimary: isPrimary,
+              targetMenksoft: targetMenksoft,
+            ),
       ),
     );
   }
@@ -1014,22 +1146,62 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(bottomSheetContext).pop(-1);
-                  },
-                  icon: const Icon(
-                    Icons.flag_outlined,
-                    size: 16,
-                    color: DesktopTheme.warning,
-                  ),
-                  label: const Text(
-                    'Алдаа мэдээлэх / Өөр утга нэмэх',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: DesktopTheme.textSecondary,
+                Wrap(
+                  alignment: WrapAlignment.spaceAround,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(bottomSheetContext).pop(-1);
+                      },
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: 16,
+                        color: DesktopTheme.warning,
+                      ),
+                      label: const Text(
+                        'Алдаа мэдээлэх / Засах',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: DesktopTheme.textSecondary,
+                        ),
+                      ),
                     ),
-                  ),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(bottomSheetContext).pop(-2);
+                      },
+                      icon: const Icon(
+                        Icons.add_circle_outline,
+                        size: 16,
+                        color: DesktopTheme.primary,
+                      ),
+                      label: const Text(
+                        'Өөр хувилбар нэмэх',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: DesktopTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                    if (token.isLocal)
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(bottomSheetContext).pop(-3);
+                        },
+                        icon: const Icon(
+                          Icons.settings_backup_restore,
+                          size: 16,
+                          color: DesktopTheme.textSecondary,
+                        ),
+                        label: const Text(
+                          'Хувийн толь засах / устгах',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: DesktopTheme.textSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -1041,7 +1213,22 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return;
       }
       if (choice == -1) {
-        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
+        final activeIdx = (_selectedOptionIndices[tokenIndex] ?? 0).clamp(
+          0,
+          token.options.length - 1,
+        );
+        final selectedOption = token.options.isNotEmpty
+            ? token.options[activeIdx]
+            : null;
+        _showFlagErrorDialog(
+          token,
+          tokenIndex: tokenIndex,
+          selectedOption: selectedOption,
+        );
+      } else if (choice == -2) {
+        _showAddVariantDialog(token, tokenIndex: tokenIndex);
+      } else if (choice == -3) {
+        _showLocalWordDialog(token, tokenIndex: tokenIndex);
       } else {
         setState(() {
           _selectedOptionIndices[tokenIndex] = choice;
@@ -1127,16 +1314,50 @@ class _ConverterScreenState extends State<ConverterScreen> {
         value: -1,
         child: Row(
           children: [
-            Icon(Icons.flag_outlined, size: 16, color: DesktopTheme.warning),
+            Icon(Icons.edit_outlined, size: 16, color: DesktopTheme.warning),
             SizedBox(width: 8),
-            Text(
-              'Алдаа мэдээлэх / Өөр утга нэмэх',
-              style: TextStyle(fontSize: 13),
-            ),
+            Text('Алдаа мэдээлэх / Засах', style: TextStyle(fontSize: 13)),
           ],
         ),
       ),
     );
+    items.add(
+      const PopupMenuItem<int>(
+        value: -2,
+        child: Row(
+          children: [
+            Icon(
+              Icons.add_circle_outline,
+              size: 16,
+              color: DesktopTheme.primary,
+            ),
+            SizedBox(width: 8),
+            Text('Өөр хувилбар нэмэх', style: TextStyle(fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+    if (token.isLocal) {
+      items.add(
+        const PopupMenuItem<int>(
+          value: -3,
+          child: Row(
+            children: [
+              Icon(
+                Icons.settings_backup_restore,
+                size: 16,
+                color: DesktopTheme.textSecondary,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Хувийн толь засах / устгах',
+                style: TextStyle(fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     showMenu<int>(
       context: context,
@@ -1152,7 +1373,22 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return;
       }
       if (selectedIndex == -1) {
-        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
+        final activeIdx = (_selectedOptionIndices[tokenIndex] ?? 0).clamp(
+          0,
+          token.options.length - 1,
+        );
+        final selectedOption = token.options.isNotEmpty
+            ? token.options[activeIdx]
+            : null;
+        _showFlagErrorDialog(
+          token,
+          tokenIndex: tokenIndex,
+          selectedOption: selectedOption,
+        );
+      } else if (selectedIndex == -2) {
+        _showAddVariantDialog(token, tokenIndex: tokenIndex);
+      } else if (selectedIndex == -3) {
+        _showLocalWordDialog(token, tokenIndex: tokenIndex);
       } else {
         setState(() {
           _selectedOptionIndices[tokenIndex] = selectedIndex;
@@ -1190,10 +1426,24 @@ class _ConverterScreenState extends State<ConverterScreen> {
         ),
         const PopupMenuDivider(),
         const PopupMenuItem<String>(
+          value: 'add_variant',
+          child: Row(
+            children: [
+              Icon(
+                Icons.add_circle_outline,
+                size: 16,
+                color: DesktopTheme.primary,
+              ),
+              SizedBox(width: 8),
+              Text('Өөр хувилбар нэмэх', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
           value: 'flag_error',
           child: Row(
             children: [
-              Icon(Icons.flag_outlined, size: 16, color: DesktopTheme.warning),
+              Icon(Icons.edit_outlined, size: 16, color: DesktopTheme.warning),
               SizedBox(width: 8),
               Text('Алдаа мэдээлэх / Засах', style: TextStyle(fontSize: 13)),
             ],
@@ -1211,8 +1461,14 @@ class _ConverterScreenState extends State<ConverterScreen> {
         ),
       ],
     ).then((action) {
-      if (action == 'flag_error') {
-        _showFlagErrorDialog(token, tokenIndex: tokenIndex);
+      if (action == 'add_variant') {
+        _showAddVariantDialog(token, tokenIndex: tokenIndex);
+      } else if (action == 'flag_error') {
+        _showFlagErrorDialog(
+          token,
+          tokenIndex: tokenIndex,
+          selectedOption: token.options.isNotEmpty ? token.options.first : null,
+        );
       } else if (action == 'copy_word') {
         final optIdx = _selectedOptionIndices[tokenIndex] ?? 0;
         final chosen = token.options.isNotEmpty

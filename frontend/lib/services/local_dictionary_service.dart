@@ -75,6 +75,7 @@ class LocalDictionaryService extends ChangeNotifier {
     required String cyrillic,
     required String menksoft,
     String? explanation,
+    DateTime? createdAt,
   }) async {
     final norm = LatinIme.normalizeCyrillic(cyrillic);
     if (norm.isEmpty) {
@@ -87,7 +88,7 @@ class LocalDictionaryService extends ChangeNotifier {
       explanation: explanation?.trim().isEmpty == true
           ? null
           : explanation?.trim(),
-      createdAt: DateTime.now(),
+      createdAt: createdAt ?? DateTime.now(),
     );
 
     _entries[norm] = entry;

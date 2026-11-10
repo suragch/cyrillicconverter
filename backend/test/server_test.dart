@@ -598,4 +598,146 @@ void main() {
       expect(json['error'], 'Payload exceeds maximum limit of 512KB');
     },
   );
+
+  test(
+    'POST /contribute accepts text-only error report and rejects > 500 chars',
+    () async {
+      // 1. Text-only error report (empty menksoft with comment)
+      final textReportRes = await post(
+        Uri.parse('$host/contribute'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'cyrillic': 'сайн',
+          'menksoft': '',
+          'comment': 'бичлэг алдаатай байна',
+          'targetMenksoft': '\uE2AC\uE281\uE2B5',
+        }),
+      );
+      expect(textReportRes.statusCode, 200);
+
+      // 2. Reject both menksoft and comment empty
+      final emptyRes = await post(
+        Uri.parse('$host/contribute'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'cyrillic': 'сайн',
+          'menksoft': '',
+          'comment': '   ',
+        }),
+      );
+      expect(emptyRes.statusCode, 400);
+
+      // 3. Reject comment exceeding 500 chars
+      final longCommentRes = await post(
+        Uri.parse('$host/contribute'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'cyrillic': 'сайн', 'comment': 'а' * 501}),
+      );
+      expect(longCommentRes.statusCode, 400);
+    },
+  );
+
+  test('GET /admin/suggestions returns total pending count', () async {
+    final res = await get(
+      Uri.parse('$host/admin/suggestions?limit=1'),
+      headers: modHeaders,
+    );
+    expect(res.statusCode, 200);
+    final json = jsonDecode(res.body);
+    expect(json['suggestions'], isA<List>());
+    expect(json['total'], isA<int>());
+    expect(json['total'] as int, greaterThanOrEqualTo(1));
+  });
+
+  test(
+    'Direct moderator definition endpoints: update, primary, delete',
+    () async {
+      // 1. Add test word via /admin/words
+      final addRes = await post(
+        Uri.parse('$host/admin/words'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({
+          'cyrillic': 'шинэүгтест',
+          'menksoft': 'menk_v1',
+          'explanation': 'эхний хувилбар',
+          'isPrimary': true,
+        }),
+      );
+      expect(addRes.statusCode, 200);
+
+      // Add secondary definition
+      final addSecRes = await post(
+        Uri.parse('$host/admin/words'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({
+          'cyrillic': 'шинэүгтест',
+          'menksoft': 'menk_v2',
+          'explanation': 'хоёр дахь хувилбар',
+          'isPrimary': false,
+        }),
+      );
+      expect(addSecRes.statusCode, 200);
+
+      // 2. Update definition (replace)
+      final updateRes = await post(
+        Uri.parse('$host/admin/definitions/update'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({
+          'cyrillic': 'шинэүгтест',
+          'targetMenksoft': 'menk_v1',
+          'menksoft': 'menk_v1_fixed',
+          'explanation': 'зассан тайлбар',
+        }),
+      );
+      expect(updateRes.statusCode, 200);
+
+      // Check check-word endpoint returns updated definition
+      var checkRes = await get(
+        Uri.parse('$host/words/check?cyrillic=шинэүгтест'),
+      );
+      expect(checkRes.statusCode, 200);
+      var defs = jsonDecode(checkRes.body)['definitions'] as List;
+      expect(defs.any((d) => d['menksoft'] == 'menk_v1_fixed'), true);
+
+      // 3. Set primary definition
+      final primaryRes = await post(
+        Uri.parse('$host/admin/definitions/primary'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({'cyrillic': 'шинэүгтест', 'menksoft': 'menk_v2'}),
+      );
+      expect(primaryRes.statusCode, 200);
+
+      checkRes = await get(Uri.parse('$host/words/check?cyrillic=шинэүгтест'));
+      defs = jsonDecode(checkRes.body)['definitions'] as List;
+      final v2Def = defs.firstWhere((d) => d['menksoft'] == 'menk_v2');
+      expect(v2Def['isDefault'], true);
+
+      // 4. Delete definition
+      final delRes = await post(
+        Uri.parse('$host/admin/definitions/delete'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({
+          'cyrillic': 'шинэүгтест',
+          'menksoft': 'menk_v1_fixed',
+        }),
+      );
+      expect(delRes.statusCode, 200);
+
+      checkRes = await get(Uri.parse('$host/words/check?cyrillic=шинэүгтест'));
+      defs = jsonDecode(checkRes.body)['definitions'] as List;
+      expect(defs.length, 1);
+      expect(defs.first['menksoft'], 'menk_v2');
+
+      // Delete last definition -> removes word completely
+      final delLastRes = await post(
+        Uri.parse('$host/admin/definitions/delete'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({'cyrillic': 'шинэүгтест', 'menksoft': 'menk_v2'}),
+      );
+      expect(delLastRes.statusCode, 200);
+
+      checkRes = await get(Uri.parse('$host/words/check?cyrillic=шинэүгтест'));
+      expect(jsonDecode(checkRes.body)['exists'], false);
+    },
+  );
 }

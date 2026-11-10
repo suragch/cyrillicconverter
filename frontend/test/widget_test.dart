@@ -420,6 +420,8 @@ void main() {
                               required menksoft,
                               context,
                               explanation,
+                              comment,
+                              isPrimary = true,
                             }) async {},
                       ),
                     );
@@ -504,6 +506,8 @@ void main() {
                             required menksoft,
                             context,
                             explanation,
+                            comment,
+                            isPrimary = true,
                           }) async {
                             submitted = true;
                             submittedCyrillic = cyrillic;
@@ -552,6 +556,8 @@ void main() {
                               required menksoft,
                               context,
                               explanation,
+                              comment,
+                              isPrimary = true,
                             }) async {},
                       ),
                     );
@@ -619,6 +625,8 @@ void main() {
                               required menksoft,
                               context,
                               explanation,
+                              comment,
+                              isPrimary = true,
                             }) async {},
                       ),
                     );
@@ -704,6 +712,8 @@ void main() {
                               required menksoft,
                               context,
                               explanation,
+                              comment,
+                              isPrimary = true,
                             }) async {},
                       ),
                     );
@@ -1017,6 +1027,7 @@ void main() {
                       builder: (ctx) => AddEditWordDialog(
                         title: 'Үл мэдэгдэх үг: "тест"',
                         initialCyrillic: 'тест',
+                        initialLatin: 'test',
                         initialContext: 'Энэ бол тест өгүүлбэр мөн',
                         onSubmit:
                             ({
@@ -1024,6 +1035,8 @@ void main() {
                               required menksoft,
                               context,
                               explanation,
+                              comment,
+                              isPrimary = true,
                             }) async {
                               submittedContext = context;
                               submittedExplanation = explanation;
@@ -1273,6 +1286,131 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(selectedIdx, 1);
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog renders separate comment field and allows text-only error reports',
+      (tester) async {
+        String? submittedComment;
+        String? submittedMenksoft;
+        bool submitted = false;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Алдаа мэдээлэх',
+                        initialCyrillic: 'алдаа',
+                        showCommentField: true,
+                        allowEmptyMenksoftWhenCommentProvided: true,
+                        submitButtonText: 'Илгээх',
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              context,
+                              explanation,
+                              comment,
+                              isPrimary = true,
+                            }) async {
+                              submitted = true;
+                              submittedMenksoft = menksoft;
+                              submittedComment = comment;
+                            },
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        // The separate moderator comment field should be rendered
+        final commentFinder = find.widgetWithText(
+          TextField,
+          'Модераторт илгээх тайлбар / Алдааны мэдээлэл (заавал биш)',
+        );
+        expect(commentFinder, findsOneWidget);
+
+        // Enter text in comment field without providing any Latin/Menksoft
+        await tester.enterText(commentFinder, 'Энэ үгийн галиг буруу байна');
+        await tester.pumpAndSettle();
+
+        // Submit should succeed as a text-only report
+        await tester.tap(find.text('Илгээх'));
+        await tester.pumpAndSettle();
+
+        expect(submitted, isTrue);
+        expect(submittedMenksoft, isEmpty);
+        expect(submittedComment, 'Энэ үгийн галиг буруу байна');
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog renders primary checkbox and passes isPrimary on submit',
+      (tester) async {
+        bool? submittedPrimary;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Үг нэмэх',
+                        initialCyrillic: 'ном',
+                        initialLatin: 'nom',
+                        showPrimaryCheckbox: true,
+                        initialIsPrimary: false,
+                        submitButtonText: 'Хадгалах',
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              context,
+                              explanation,
+                              comment,
+                              isPrimary = true,
+                            }) async {
+                              submittedPrimary = isPrimary;
+                            },
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Үндсэн утга болгох'), findsOneWidget);
+
+        // Tap the checkbox to toggle it to true
+        await tester.tap(find.text('Үндсэн утга болгох'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Хадгалах'));
+        await tester.pumpAndSettle();
+
+        expect(submittedPrimary, isTrue);
       },
     );
   });

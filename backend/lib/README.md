@@ -18,9 +18,13 @@ Core domain and infrastructure library for the Cyrillic-to-Traditional Mongolian
 - `[database.dart:AppDatabase.logUnknownWord]`: Logs or increments frequency counter and context snippet for missing Cyrillic terms.
 - `[database.dart:AppDatabase.addSuggestion]`: Submits a community word definition proposal into the pending moderation queue.
 - `[database.dart:AppDatabase.getTopUnknownWords]`: Fetches frequency-ranked missing word queue for review.
-- `[database.dart:AppDatabase.getPendingSuggestions]`: Fetches pending community word suggestions.
-- `[database.dart:AppDatabase.addWordDefinition]`: Adds or updates word definitions, maintaining single-primary definition status.
-- `[database.dart:AppDatabase.approveSuggestion]`: Approves suggestion, creates dictionary entry, purges unknown log, and redacts usage context.
+- `[database.dart:AppDatabase.getPendingSuggestions]`: Fetches pending community word suggestions ordered by 4-tier priority.
+- `[database.dart:AppDatabase.getPendingSuggestionsCount]`: Returns the total count of pending suggestions.
+- `[database.dart:AppDatabase.addWordDefinition]`: Adds or updates word definitions, maintaining single-primary definition status and auto-resolving matching suggestions.
+- `[database.dart:AppDatabase.replaceDefinition]`: Replaces an existing definition in place, merges if target exists, or falls back to addWordDefinition.
+- `[database.dart:AppDatabase.deleteDefinition]`: Deletes a definition, auto-promotes the oldest remaining definition to primary, or removes the word if empty.
+- `[database.dart:AppDatabase.setPrimaryDefinition]`: Explicitly sets a definition as primary and demotes other definitions for the word.
+- `[database.dart:AppDatabase.approveSuggestion]`: Approves suggestion with explicit actions (`add_primary`, `add_secondary`, `replace`, `resolve_only`), purges unknown log, and redacts usage context.
 - `[database.dart:AppDatabase.rejectSuggestion]`: Rejects suggestion, records audit entry in `rejected_words`, and purges usage context.
 - `[database.dart:AppDatabase.rejectMissingWord]`: Rejects unknown word log, records audit entry, and deletes log entry.
 - `[database.dart:AppDatabase.getRejectionHistory]`: Retrieves historical rejections for a word.

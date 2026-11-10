@@ -42,3 +42,7 @@ dictionary.db*
 # Deployment documentation (contains server IPs/internal paths)
 DEPLOYMENT.md
 
+# Other
+data/
+tool/
+bin/

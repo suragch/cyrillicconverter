@@ -10,12 +10,19 @@ class AddEditWordDialog extends StatefulWidget {
   final String? initialCyrillic;
   final String? initialLatin;
   final String? initialExplanation;
+  final String? initialComment;
   final String? initialContext;
+  final bool showCommentField;
+  final bool allowEmptyMenksoftWhenCommentProvided;
+  final bool initialIsPrimary;
+  final bool showPrimaryCheckbox;
   final Future<void> Function({
     required String cyrillic,
     required String menksoft,
     String? context,
     String? explanation,
+    String? comment,
+    bool isPrimary,
   })
   onSubmit;
   final Future<void> Function()? onDelete;
@@ -28,7 +35,12 @@ class AddEditWordDialog extends StatefulWidget {
     this.initialCyrillic,
     this.initialLatin,
     this.initialExplanation,
+    this.initialComment,
     this.initialContext,
+    this.showCommentField = false,
+    this.allowEmptyMenksoftWhenCommentProvided = false,
+    this.initialIsPrimary = true,
+    this.showPrimaryCheckbox = false,
     required this.onSubmit,
     this.onDelete,
     this.title = 'Үг нэмэх / санал болгох',
@@ -44,22 +56,26 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   late final TextEditingController _cyrillicController;
   late final TextEditingController _latinController;
   late final TextEditingController _explanationController;
+  late final TextEditingController _commentController;
   late final TextEditingController _contextController;
   late final FocusNode _latinFocusNode;
   String _previewMenksoft = '';
   bool _isSubmitting = false;
   late bool _showKeyboard;
   bool _isContextDeleted = false;
+  late bool _isPrimary;
 
   @override
   void initState() {
     super.initState();
     _showKeyboard = widget.initialShowKeyboard;
+    _isPrimary = widget.initialIsPrimary;
     _cyrillicController = TextEditingController(text: widget.initialCyrillic);
     _latinController = TextEditingController(text: widget.initialLatin);
     _explanationController = TextEditingController(
       text: widget.initialExplanation,
     );
+    _commentController = TextEditingController(text: widget.initialComment);
     final trimmedCtx = widget.initialContext?.trim() ?? '';
     _contextController = TextEditingController(text: trimmedCtx);
     _isContextDeleted = trimmedCtx.isEmpty;
@@ -108,6 +124,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     _cyrillicController.dispose();
     _latinController.dispose();
     _explanationController.dispose();
+    _commentController.dispose();
     _contextController.dispose();
     _latinFocusNode.removeListener(_onLatinFocusChanged);
     _latinFocusNode.dispose();
@@ -120,6 +137,12 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     }
     final cyrillic = _cyrillicController.text.trim();
     if (cyrillic.isEmpty) {
+      return;
+    }
+    final commentText = _commentController.text.trim();
+    final hasComment = commentText.isNotEmpty;
+    if (_previewMenksoft.isEmpty &&
+        !(widget.allowEmptyMenksoftWhenCommentProvided && hasComment)) {
       return;
     }
 
@@ -136,6 +159,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
         explanation: _explanationController.text.trim().isEmpty
             ? null
             : _explanationController.text.trim(),
+        comment: commentText.isEmpty ? null : commentText,
+        isPrimary: _isPrimary,
       );
       if (mounted) {
         Navigator.pop(context, true);
@@ -447,6 +472,12 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                       decoration: const InputDecoration(
                         labelText: 'Тайлбар (заавал биш)',
                         labelStyle: TextStyle(fontSize: 12),
+                        helperText:
+                            'Утгын тайлбар — ижил дуудлагатай үгийг ялгах',
+                        helperStyle: TextStyle(
+                          fontSize: 11,
+                          color: DesktopTheme.textMuted,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: DesktopTheme.roundedSmall,
                         ),
@@ -456,6 +487,51 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                         ),
                       ),
                     ),
+                    if (widget.showCommentField) ...[
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _commentController,
+                        style: const TextStyle(fontSize: 13),
+                        maxLength: 500,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText:
+                              'Модераторт илгээх тайлбар / Алдааны мэдээлэл (заавал биш)',
+                          labelStyle: TextStyle(fontSize: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: DesktopTheme.roundedSmall,
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ],
+                    if (widget.showPrimaryCheckbox) ...[
+                      const SizedBox(height: 6),
+                      Material(
+                        type: MaterialType.transparency,
+                        child: CheckboxListTile(
+                          title: const Text(
+                            'Үндсэн утга болгох',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          value: _isPrimary,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _isPrimary = val;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                     if (widget.initialContext != null &&
                         widget.initialContext!.trim().isNotEmpty) ...[
                       const SizedBox(height: 10),

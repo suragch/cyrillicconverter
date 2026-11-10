@@ -1,3 +1,13 @@
+## 1.3.0 - 2026.11.10
+
+- Separate dictionary explanation from contributor comments and error reports.
+- Support text-only error reporting and deletion requests without mandatory request-type categorization.
+- 30-day local dictionary override retention on known words until exact `(cyrillic, menksoft)` pair matches server.
+- Dedicated ambiguity options: "Өөр хувилбар нэмэх" (add variant) and "Алдаа мэдээлэх / Засах" (report/edit).
+- Moderator workstation with existing definition cards, replacement, secondary variant, and resolve-only actions.
+- Direct definition controls: set primary, edit in place, or delete definition.
+- Fixed primary badge in dictionary browse view and accurate total queue count tracking.
+
 ## 1.2.0 - 2026.11.06
 
 - Implement local-first word persistence using `LocalDictionaryService` backed by `SharedPreferences`.

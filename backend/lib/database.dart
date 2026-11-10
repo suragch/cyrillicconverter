@@ -6,8 +6,27 @@ import 'cyrillic_validator.dart';
 
 class AppDatabase {
   final Database db;
+  bool _inTransaction = false;
 
   AppDatabase(this.db);
+
+  T _runInTransaction<T>(T Function() action) {
+    if (_inTransaction) {
+      return action();
+    }
+    _inTransaction = true;
+    db.execute('BEGIN TRANSACTION;');
+    try {
+      final result = action();
+      db.execute('COMMIT;');
+      return result;
+    } catch (e) {
+      db.execute('ROLLBACK;');
+      rethrow;
+    } finally {
+      _inTransaction = false;
+    }
+  }
 
   factory AppDatabase.open(String path) {
     final db = sqlite3.open(path);
@@ -88,6 +107,59 @@ class AppDatabase {
     try {
       db.execute('ALTER TABLE suggestions ADD COLUMN explanation TEXT;');
     } catch (_) {}
+    try {
+      db.execute('ALTER TABLE suggestions ADD COLUMN comment TEXT;');
+    } catch (_) {}
+    try {
+      db.execute('ALTER TABLE suggestions ADD COLUMN target_menksoft TEXT;');
+    } catch (_) {}
+
+    // Normalize cyrillic casing for any existing pending suggestions
+    try {
+      final pendingRows = db.select(
+        "SELECT id, cyrillic FROM suggestions WHERE status = 'pending'",
+      );
+      for (final row in pendingRows) {
+        final rawCyr = row['cyrillic'] as String;
+        final normCyr = CyrillicValidator.normalizeWord(rawCyr);
+        if (normCyr != rawCyr) {
+          db.execute('UPDATE suggestions SET cyrillic = ? WHERE id = ?', [
+            normCyr,
+            row['id'],
+          ]);
+        }
+      }
+    } catch (_) {}
+
+    // Startup auto-cleanup for matching pending suggestions
+    try {
+      db.execute('''
+        UPDATE suggestions
+        SET status = 'approved',
+            moderator_note = 'auto_resolved',
+            context = NULL,
+            reviewed_at = CURRENT_TIMESTAMP
+        WHERE status = 'pending'
+          AND (
+            (
+              TRIM(menksoft_code) != ''
+              AND EXISTS (
+                SELECT 1 FROM words w
+                JOIN definitions d ON w.id = d.word_id
+                WHERE w.cyrillic = suggestions.cyrillic
+                  AND d.menksoft_code = suggestions.menksoft_code
+              )
+            )
+            OR (
+              submitted_by = 'db_discrepancy_review'
+              AND EXISTS (
+                SELECT 1 FROM words w
+                WHERE w.cyrillic = suggestions.cyrillic
+              )
+            )
+          );
+      ''');
+    } catch (_) {}
   }
 
   /// Looks up definitions for a Cyrillic word.
@@ -154,8 +226,11 @@ class AppDatabase {
     required String menksoft,
     String? context,
     String? explanation,
+    String? comment,
+    String? targetMenksoft,
     String? submittedBy,
   }) {
+    final normalized = CyrillicValidator.normalizeWord(cyrillic);
     final cleanContext = (context != null && context.trim().isNotEmpty)
         ? context.trim()
         : null;
@@ -163,16 +238,25 @@ class AppDatabase {
         (explanation != null && explanation.trim().isNotEmpty)
         ? explanation.trim()
         : null;
+    final cleanComment = (comment != null && comment.trim().isNotEmpty)
+        ? comment.trim()
+        : null;
+    final cleanTarget =
+        (targetMenksoft != null && targetMenksoft.trim().isNotEmpty)
+        ? targetMenksoft.trim()
+        : null;
     db.execute(
       '''
-      INSERT INTO suggestions (cyrillic, menksoft_code, context, explanation, submitted_by)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO suggestions (cyrillic, menksoft_code, context, explanation, comment, target_menksoft, submitted_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     ''',
       [
-        cyrillic.trim(),
+        normalized.isNotEmpty ? normalized : cyrillic.trim(),
         menksoft.trim(),
         cleanContext,
         cleanExplanation,
+        cleanComment,
+        cleanTarget,
         submittedBy,
       ],
     );
@@ -195,10 +279,62 @@ class AppDatabase {
   List<Map<String, dynamic>> getPendingSuggestions({int limit = 100}) {
     final safeLimit = limit.clamp(1, 200);
     final results = db.select(
-      "SELECT id, cyrillic, menksoft_code, context, explanation, submitted_by, created_at FROM suggestions WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+      '''
+      SELECT id, cyrillic, menksoft_code, context, explanation, comment, target_menksoft, submitted_by, created_at
+      FROM suggestions
+      WHERE status = 'pending'
+      ORDER BY
+        CASE
+          WHEN submitted_by = 'db_discrepancy_review' THEN 0
+          WHEN COALESCE(submitted_by, '') != 'eck_import'
+               AND (COALESCE(comment, '') != '' OR COALESCE(target_menksoft, '') != '') THEN 1
+          WHEN COALESCE(submitted_by, '') != 'eck_import' THEN 2
+          ELSE 3
+        END ASC,
+        created_at ASC,
+        id ASC
+      LIMIT ?
+      ''',
       [safeLimit],
     );
     return results.map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// Returns total count of pending suggestions.
+  int getPendingSuggestionsCount() {
+    final row = db.select(
+      "SELECT count(*) as count FROM suggestions WHERE status = 'pending';",
+    );
+    return row.first['count'] as int;
+  }
+
+  void _autoResolveMatchingSuggestions(String cyrillic, String menksoft) {
+    final normalized = CyrillicValidator.normalizeWord(cyrillic);
+    final rawTrimmed = cyrillic.trim();
+    final cleanMenksoft = menksoft.trim();
+
+    db.execute(
+      '''
+      UPDATE suggestions
+      SET status = 'approved',
+          moderator_note = 'auto_resolved',
+          context = NULL,
+          reviewed_at = CURRENT_TIMESTAMP
+      WHERE status = 'pending'
+        AND (
+          (
+            cyrillic IN (?, ?)
+            AND TRIM(menksoft_code) = ?
+            AND TRIM(menksoft_code) != ''
+          )
+          OR (
+            cyrillic IN (?, ?)
+            AND submitted_by = 'db_discrepancy_review'
+          )
+        )
+      ''',
+      [normalized, rawTrimmed, cleanMenksoft, normalized, rawTrimmed],
+    );
   }
 
   /// Adds or updates a word and definition. Returns word_id.
@@ -209,48 +345,308 @@ class AppDatabase {
     bool isPrimary = true,
     String? verifiedBy,
   }) {
-    final normalized = CyrillicValidator.normalizeWord(cyrillic);
-    final stmtWord = db.prepare(
-      'INSERT OR IGNORE INTO words (cyrillic) VALUES (?)',
-    );
-    stmtWord.execute([normalized]);
-    stmtWord.close();
+    return _runInTransaction(() {
+      final normalized = CyrillicValidator.normalizeWord(cyrillic);
+      final cleanMenksoft = menksoft.trim();
 
-    final stmtGetId = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
-    final wordRow = stmtGetId.select([normalized]);
-    stmtGetId.close();
-    final wordId = wordRow.first['id'] as int;
+      final stmtWord = db.prepare(
+        'INSERT OR IGNORE INTO words (cyrillic) VALUES (?)',
+      );
+      stmtWord.execute([normalized]);
+      stmtWord.close();
 
-    // Check if identical definition already exists
-    final checkStmt = db.prepare(
-      'SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ?',
-    );
-    final existing = checkStmt.select([wordId, menksoft.trim()]);
-    checkStmt.close();
+      final stmtGetId = db.prepare('SELECT id FROM words WHERE cyrillic = ?');
+      final wordRow = stmtGetId.select([normalized]);
+      stmtGetId.close();
+      final wordId = wordRow.first['id'] as int;
 
-    if (existing.isEmpty) {
-      // If setting as primary, demote existing primary definitions if needed
-      if (isPrimary) {
-        db.execute('UPDATE definitions SET is_primary = 0 WHERE word_id = ?', [
-          wordId,
+      final countRow = db.select(
+        'SELECT count(*) as count FROM definitions WHERE word_id = ?;',
+        [wordId],
+      );
+      final existingDefCount = countRow.first['count'] as int;
+      final effectiveIsPrimary = (existingDefCount == 0) ? true : isPrimary;
+
+      // Check if identical definition already exists
+      final checkStmt = db.prepare(
+        'SELECT id, is_primary, explanation FROM definitions WHERE word_id = ? AND menksoft_code = ?',
+      );
+      final existing = checkStmt.select([wordId, cleanMenksoft]);
+      checkStmt.close();
+
+      if (existing.isEmpty) {
+        if (effectiveIsPrimary) {
+          db.execute(
+            'UPDATE definitions SET is_primary = 0 WHERE word_id = ?',
+            [wordId],
+          );
+        }
+        db.execute(
+          '''
+          INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary, verified_by)
+          VALUES (?, ?, ?, ?, ?)
+        ''',
+          [
+            wordId,
+            cleanMenksoft,
+            explanation?.trim(),
+            effectiveIsPrimary ? 1 : 0,
+            verifiedBy,
+          ],
+        );
+      } else {
+        final defId = existing.first['id'] as int;
+        if (isPrimary) {
+          db.execute(
+            'UPDATE definitions SET is_primary = 0 WHERE word_id = ?',
+            [wordId],
+          );
+          db.execute('UPDATE definitions SET is_primary = 1 WHERE id = ?', [
+            defId,
+          ]);
+        }
+        if (explanation != null && explanation.trim().isNotEmpty) {
+          db.execute('UPDATE definitions SET explanation = ? WHERE id = ?', [
+            explanation.trim(),
+            defId,
+          ]);
+        }
+      }
+
+      _autoResolveMatchingSuggestions(normalized, cleanMenksoft);
+      return wordId;
+    });
+  }
+
+  /// Replaces an existing definition for a word with a new spelling in place.
+  void replaceDefinition({
+    required String cyrillic,
+    required String targetMenksoft,
+    required String newMenksoft,
+    String? explanation,
+    bool? isPrimary,
+    String? verifiedBy,
+  }) {
+    _runInTransaction(() {
+      final normalized = CyrillicValidator.normalizeWord(cyrillic);
+      final cleanNew = newMenksoft.trim();
+      var cleanTarget = targetMenksoft.trim();
+
+      final wordRows = db.select('SELECT id FROM words WHERE cyrillic = ?', [
+        normalized,
+      ]);
+      if (wordRows.isEmpty) {
+        addWordDefinition(
+          cyrillic: normalized,
+          menksoft: cleanNew,
+          explanation: explanation,
+          isPrimary: isPrimary ?? true,
+          verifiedBy: verifiedBy,
+        );
+        return;
+      }
+      final wordId = wordRows.first['id'] as int;
+
+      final allDefs = db.select(
+        'SELECT id, menksoft_code, is_primary, explanation FROM definitions WHERE word_id = ? ORDER BY id ASC',
+        [wordId],
+      );
+      if (allDefs.isEmpty) {
+        addWordDefinition(
+          cyrillic: normalized,
+          menksoft: cleanNew,
+          explanation: explanation,
+          isPrimary: isPrimary ?? true,
+          verifiedBy: verifiedBy,
+        );
+        return;
+      }
+
+      // If target_menksoft is empty and word has exactly 1 definition, target that single definition
+      if (cleanTarget.isEmpty && allDefs.length == 1) {
+        cleanTarget = allDefs.first['menksoft_code'] as String;
+      }
+
+      final targetMatches = allDefs
+          .where((d) => (d['menksoft_code'] as String).trim() == cleanTarget)
+          .toList();
+      if (targetMatches.isEmpty) {
+        addWordDefinition(
+          cyrillic: normalized,
+          menksoft: cleanNew,
+          explanation: explanation,
+          isPrimary: isPrimary ?? true,
+          verifiedBy: verifiedBy,
+        );
+        return;
+      }
+
+      final targetDef = targetMatches.first;
+      final targetDefId = targetDef['id'] as int;
+      final targetWasPrimary = (targetDef['is_primary'] as int) == 1;
+
+      // Check if newMenksoft already exists on another row for word_id
+      final otherWithNew = allDefs
+          .where(
+            (d) =>
+                (d['menksoft_code'] as String).trim() == cleanNew &&
+                (d['id'] as int) != targetDefId,
+          )
+          .toList();
+
+      if (otherWithNew.isNotEmpty) {
+        final survivingDef = otherWithNew.first;
+        final survivingDefId = survivingDef['id'] as int;
+        final survivingWasPrimary = (survivingDef['is_primary'] as int) == 1;
+        final shouldBePrimary =
+            isPrimary ?? (targetWasPrimary || survivingWasPrimary);
+
+        db.execute('DELETE FROM definitions WHERE id = ?', [targetDefId]);
+
+        if (shouldBePrimary) {
+          db.execute(
+            'UPDATE definitions SET is_primary = 0 WHERE word_id = ?',
+            [wordId],
+          );
+          db.execute('UPDATE definitions SET is_primary = 1 WHERE id = ?', [
+            survivingDefId,
+          ]);
+        }
+        if (explanation != null && explanation.trim().isNotEmpty) {
+          db.execute(
+            'UPDATE definitions SET explanation = ?, verified_by = COALESCE(?, verified_by) WHERE id = ?',
+            [explanation.trim(), verifiedBy, survivingDefId],
+          );
+        } else if (verifiedBy != null) {
+          db.execute('UPDATE definitions SET verified_by = ? WHERE id = ?', [
+            verifiedBy,
+            survivingDefId,
+          ]);
+        }
+      } else {
+        final shouldBePrimary = isPrimary ?? targetWasPrimary;
+        if (shouldBePrimary) {
+          db.execute(
+            'UPDATE definitions SET is_primary = 0 WHERE word_id = ?',
+            [wordId],
+          );
+        }
+        db.execute(
+          '''
+          UPDATE definitions
+          SET menksoft_code = ?,
+              explanation = COALESCE(?, explanation),
+              is_primary = ?,
+              verified_by = COALESCE(?, verified_by)
+          WHERE id = ?
+          ''',
+          [
+            cleanNew,
+            (explanation != null && explanation.trim().isNotEmpty)
+                ? explanation.trim()
+                : null,
+            shouldBePrimary ? 1 : 0,
+            verifiedBy,
+            targetDefId,
+          ],
+        );
+      }
+
+      // Ensure exactly one primary definition if definitions remain
+      final remainingDefs = db.select(
+        'SELECT id, is_primary FROM definitions WHERE word_id = ? ORDER BY id ASC',
+        [wordId],
+      );
+      if (remainingDefs.isNotEmpty &&
+          !remainingDefs.any((d) => (d['is_primary'] as int) == 1)) {
+        db.execute('UPDATE definitions SET is_primary = 1 WHERE id = ?', [
+          remainingDefs.first['id'] as int,
         ]);
       }
-      db.execute(
-        '''
-        INSERT INTO definitions (word_id, menksoft_code, explanation, is_primary, verified_by)
-        VALUES (?, ?, ?, ?, ?)
-      ''',
-        [
-          wordId,
-          menksoft.trim(),
-          explanation?.trim(),
-          isPrimary ? 1 : 0,
-          verifiedBy,
-        ],
-      );
-    }
 
-    return wordId;
+      _autoResolveMatchingSuggestions(normalized, cleanNew);
+    });
+  }
+
+  /// Deletes a specific definition for a word. Returns true if deleted.
+  bool deleteDefinition({required String cyrillic, required String menksoft}) {
+    return _runInTransaction(() {
+      final normalized = CyrillicValidator.normalizeWord(cyrillic);
+      final cleanMenksoft = menksoft.trim();
+
+      final wordRows = db.select('SELECT id FROM words WHERE cyrillic = ?', [
+        normalized,
+      ]);
+      if (wordRows.isEmpty) {
+        return false;
+      }
+      final wordId = wordRows.first['id'] as int;
+
+      final defRows = db.select(
+        'SELECT id, is_primary FROM definitions WHERE word_id = ? AND menksoft_code = ?',
+        [wordId, cleanMenksoft],
+      );
+      if (defRows.isEmpty) {
+        return false;
+      }
+
+      final defToDelete = defRows.first;
+      final defId = defToDelete['id'] as int;
+      final wasPrimary = (defToDelete['is_primary'] as int) == 1;
+
+      db.execute('DELETE FROM definitions WHERE id = ?', [defId]);
+
+      final remaining = db.select(
+        'SELECT id, is_primary FROM definitions WHERE word_id = ? ORDER BY id ASC',
+        [wordId],
+      );
+
+      if (remaining.isEmpty) {
+        db.execute('DELETE FROM words WHERE id = ?', [wordId]);
+      } else if (wasPrimary) {
+        final oldestId = remaining.first['id'] as int;
+        db.execute('UPDATE definitions SET is_primary = 1 WHERE id = ?', [
+          oldestId,
+        ]);
+      }
+
+      return true;
+    });
+  }
+
+  /// Sets a specific definition as primary and demotes all others for the word.
+  bool setPrimaryDefinition({
+    required String cyrillic,
+    required String menksoft,
+  }) {
+    return _runInTransaction(() {
+      final normalized = CyrillicValidator.normalizeWord(cyrillic);
+      final cleanMenksoft = menksoft.trim();
+
+      final wordRows = db.select('SELECT id FROM words WHERE cyrillic = ?', [
+        normalized,
+      ]);
+      if (wordRows.isEmpty) {
+        return false;
+      }
+      final wordId = wordRows.first['id'] as int;
+
+      final targetDef = db.select(
+        'SELECT id FROM definitions WHERE word_id = ? AND menksoft_code = ?',
+        [wordId, cleanMenksoft],
+      );
+      if (targetDef.isEmpty) {
+        return false;
+      }
+
+      db.execute('UPDATE definitions SET is_primary = 0 WHERE word_id = ?', [
+        wordId,
+      ]);
+      db.execute('UPDATE definitions SET is_primary = 1 WHERE id = ?', [
+        targetDef.first['id'] as int,
+      ]);
+      return true;
+    });
   }
 
   /// Moderator review: Approve suggestion.
@@ -260,50 +656,96 @@ class AppDatabase {
     String? cyrillic,
     String? menksoft,
     String? explanation,
+    String action = 'add_primary',
+    String? targetMenksoft,
   }) {
-    final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [
-      suggestionId,
-    ]);
-    if (rows.isEmpty) {
-      return;
-    }
-    final sug = rows.first;
-    final finalCyrillic = (cyrillic != null && cyrillic.trim().isNotEmpty)
-        ? cyrillic.trim()
-        : (sug['cyrillic'] as String);
-    final finalMenksoft = (menksoft != null && menksoft.trim().isNotEmpty)
-        ? menksoft.trim()
-        : (sug['menksoft_code'] as String);
-    final rawExplanation = explanation ?? (sug['explanation'] as String?);
-    final finalExplanation =
-        (rawExplanation != null && rawExplanation.trim().isNotEmpty)
-        ? rawExplanation.trim()
-        : null;
-
-    addWordDefinition(
-      cyrillic: finalCyrillic,
-      menksoft: finalMenksoft,
-      explanation: finalExplanation,
-      isPrimary: true,
-      verifiedBy: verifiedBy,
-    );
-
-    db.execute(
-      "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = NULL, explanation = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [
-        finalCyrillic,
-        finalMenksoft,
-        finalExplanation,
-        verifiedBy,
+    _runInTransaction(() {
+      final rows = db.select('SELECT * FROM suggestions WHERE id = ?', [
         suggestionId,
-      ],
-    );
+      ]);
+      if (rows.isEmpty) {
+        return;
+      }
+      final sug = rows.first;
+      final finalCyrillic = (cyrillic != null && cyrillic.trim().isNotEmpty)
+          ? cyrillic.trim()
+          : (sug['cyrillic'] as String);
+      final finalMenksoft = (menksoft != null && menksoft.trim().isNotEmpty)
+          ? menksoft.trim()
+          : (sug['menksoft_code'] as String);
+      final rawExplanation = explanation ?? (sug['explanation'] as String?);
+      final finalExplanation =
+          (rawExplanation != null && rawExplanation.trim().isNotEmpty)
+          ? rawExplanation.trim()
+          : null;
+      final finalTargetMenksoft =
+          (targetMenksoft != null && targetMenksoft.trim().isNotEmpty)
+          ? targetMenksoft.trim()
+          : (sug['target_menksoft'] as String?)?.trim();
 
-    // Also remove from unknown_logs if it was logged
-    db.execute('DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?', [
-      finalCyrillic.trim(),
-      finalCyrillic.trim().toLowerCase(),
-    ]);
+      switch (action) {
+        case 'add_primary':
+          addWordDefinition(
+            cyrillic: finalCyrillic,
+            menksoft: finalMenksoft,
+            explanation: finalExplanation,
+            isPrimary: true,
+            verifiedBy: verifiedBy,
+          );
+          break;
+        case 'add_secondary':
+          addWordDefinition(
+            cyrillic: finalCyrillic,
+            menksoft: finalMenksoft,
+            explanation: finalExplanation,
+            isPrimary: false,
+            verifiedBy: verifiedBy,
+          );
+          break;
+        case 'replace':
+          replaceDefinition(
+            cyrillic: finalCyrillic,
+            targetMenksoft: finalTargetMenksoft ?? '',
+            newMenksoft: finalMenksoft,
+            explanation: finalExplanation,
+            verifiedBy: verifiedBy,
+          );
+          break;
+        case 'resolve_only':
+          // Close report without modifying dictionary entries
+          break;
+        default:
+          addWordDefinition(
+            cyrillic: finalCyrillic,
+            menksoft: finalMenksoft,
+            explanation: finalExplanation,
+            isPrimary: true,
+            verifiedBy: verifiedBy,
+          );
+          break;
+      }
+
+      db.execute(
+        "UPDATE suggestions SET status = 'approved', cyrillic = ?, menksoft_code = ?, context = NULL, explanation = ?, target_menksoft = ?, moderator_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [
+          finalCyrillic,
+          finalMenksoft,
+          finalExplanation,
+          finalTargetMenksoft,
+          action,
+          verifiedBy,
+          suggestionId,
+        ],
+      );
+
+      // Only remove from unknown_logs when a definition was added or replaced
+      if (action != 'resolve_only') {
+        db.execute(
+          'DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?',
+          [finalCyrillic.trim(), finalCyrillic.trim().toLowerCase()],
+        );
+      }
+    });
   }
 
   /// Records a rejected word into the rejected_words table for future study.
@@ -444,7 +886,7 @@ class AppDatabase {
       'SELECT id, cyrillic, frequency, last_context, first_seen, last_seen FROM unknown_logs ORDER BY frequency DESC;',
     );
     final suggestions = db.select(
-      'SELECT id, cyrillic, menksoft_code, context, explanation, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;',
+      'SELECT id, cyrillic, menksoft_code, context, explanation, comment, target_menksoft, submitted_by, status, moderator_note, reviewed_by, created_at, reviewed_at FROM suggestions ORDER BY id ASC;',
     );
     final rejectedWords = db.select(
       'SELECT id, cyrillic, menksoft_code, reason, details, source, source_id, submitted_by, reviewed_by, created_at FROM rejected_words ORDER BY id ASC;',

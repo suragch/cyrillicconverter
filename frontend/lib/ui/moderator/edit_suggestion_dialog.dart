@@ -13,6 +13,8 @@ class EditSuggestionDialog extends StatefulWidget {
   final String initialCyrillic;
   final String initialMenksoft;
   final String? initialExplanation;
+  final String? initialComment;
+  final String? targetMenksoft;
   final String serverUrl;
   final String? authToken;
   final Future<void> Function({
@@ -20,6 +22,8 @@ class EditSuggestionDialog extends StatefulWidget {
     required String menksoft,
     String? explanation,
     required bool andApprove,
+    String action,
+    String? targetMenksoft,
   })
   onSave;
 
@@ -28,6 +32,8 @@ class EditSuggestionDialog extends StatefulWidget {
     required this.initialCyrillic,
     required this.initialMenksoft,
     this.initialExplanation,
+    this.initialComment,
+    this.targetMenksoft,
     required this.serverUrl,
     this.authToken,
     required this.onSave,
@@ -179,7 +185,12 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
     // Check if homonym without note
     final exists = _cyrillicCheckResult?['exists'] == true;
     final note = _explanationController.text.trim();
-    if (exists && note.isEmpty) {
+    final hasTarget =
+        widget.targetMenksoft != null &&
+        widget.targetMenksoft!.trim().isNotEmpty;
+    final isTextOnly = widget.initialMenksoft.trim().isEmpty;
+
+    if (exists && note.isEmpty && !hasTarget && !isTextOnly) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => DesktopDialogFrame(
@@ -220,11 +231,14 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
 
     setState(() => _isSaving = true);
     try {
+      final action = hasTarget ? 'replace' : 'add_primary';
       await widget.onSave(
         cyrillic: cyrillic,
         menksoft: _previewMenksoft,
         explanation: note.isEmpty ? null : note,
         andApprove: andApprove,
+        action: action,
+        targetMenksoft: widget.targetMenksoft,
       );
       if (mounted) {
         Navigator.pop(context, true);
@@ -311,6 +325,43 @@ class _EditSuggestionDialogState extends State<EditSuggestionDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.initialComment != null &&
+                        widget.initialComment!.trim().isNotEmpty) ...[
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: DesktopTheme.secondarySurface,
+                          borderRadius: DesktopTheme.roundedSmall,
+                          border: Border.all(
+                            color: DesktopTheme.border,
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Хэрэглэгчийн тэмдэглэл / Алдааны мэдээлэл:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: DesktopTheme.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.initialComment!.trim(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: DesktopTheme.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     // Cyrillic Input
                     TextField(
                       controller: _cyrillicController,

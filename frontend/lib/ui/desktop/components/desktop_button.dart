@@ -34,6 +34,16 @@ class _DesktopButtonState extends State<DesktopButton> {
   bool _isPressed = false;
 
   @override
+  void didUpdateWidget(covariant DesktopButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final isEnabled = widget.onPressed != null && !widget.isLoading;
+    if (!isEnabled && (_isHovered || _isPressed)) {
+      _isHovered = false;
+      _isPressed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isEnabled = widget.onPressed != null && !widget.isLoading;
 
@@ -110,12 +120,14 @@ class _DesktopButtonState extends State<DesktopButton> {
     return MouseRegion(
       cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: isEnabled ? (_) => setState(() => _isHovered = true) : null,
-      onExit: isEnabled
-          ? (_) => setState(() {
-              _isHovered = false;
-              _isPressed = false;
-            })
-          : null,
+      onExit: (_) {
+        if (_isHovered || _isPressed) {
+          setState(() {
+            _isHovered = false;
+            _isPressed = false;
+          });
+        }
+      },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: isEnabled ? (_) => setState(() => _isPressed = true) : null,
@@ -242,13 +254,25 @@ class _DesktopIconButtonState extends State<DesktopIconButton> {
   bool _isHovered = false;
 
   @override
+  void didUpdateWidget(covariant DesktopIconButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.onPressed == null && _isHovered) {
+      _isHovered = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isEnabled = widget.onPressed != null;
 
     final child = MouseRegion(
       cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: isEnabled ? (_) => setState(() => _isHovered = true) : null,
-      onExit: isEnabled ? (_) => setState(() => _isHovered = false) : null,
+      onExit: (_) {
+        if (_isHovered) {
+          setState(() => _isHovered = false);
+        }
+      },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onPressed,

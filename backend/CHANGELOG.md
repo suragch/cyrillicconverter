@@ -1,3 +1,10 @@
+## 1.3.1
+
+- Add ALL-CAPS lowercase fallback and `TRIM(menksoft_code)` matching on definition delete, primary promotion, and replacement; return HTTP 404/409 on missing or already-reviewed moderator actions.
+- Make `rejectMissingWord` and `rejectSuggestion` transactional and idempotent; delete raw and normalized forms from `unknown_logs`; scope suggestion rejection to the single suggestion `id`; return `total` in `GET /admin/missing`.
+- Support explicitly clearing `explanation` on approval and update, omit auto-generated `"ECK ..."` notes unless edited, reject empty `menksoft` on non-`resolve_only` approvals, and exempt comment-bearing suggestions from auto-resolution.
+- Fix Cyrillic case matching in `getRejectionHistory`/`logRejectedWord`, preserve newlines and compound/paired punctuation in `/convert`, batch unknown-word flushes with `normalizeWord`, enforce 512KB limit on chunked requests, expose `isModerator` in `/auth/login` and `/auth/me`, remove `_` from `CyrillicValidator`, and fix `seed.dart`, `migrate_seed.dart`, and `setup_db.dart`.
+
 ## 1.3.0
 
 - Additive schema columns `comment` and `target_menksoft` on `suggestions` table.

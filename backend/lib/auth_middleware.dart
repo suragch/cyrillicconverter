@@ -78,6 +78,29 @@ Middleware pocketBaseAuth({String pbUrl = 'https://cyrillic.suragch.dev'}) {
         );
       }
 
+      // Allow test regular user token if set in environment (for unit & integration tests)
+      final testUserToken = Platform.environment['TEST_USER_TOKEN'];
+      if (testUserToken != null &&
+          testUserToken.isNotEmpty &&
+          token == testUserToken) {
+        return innerHandler(
+          request.change(
+            context: {
+              'auth': AuthContext(
+                user: RecordModel({
+                  'id': 'test-user',
+                  'email': 'user@test.com',
+                  'role': '',
+                }),
+                isModerator: false,
+                isAdmin: false,
+                token: token,
+              ),
+            },
+          ),
+        );
+      }
+
       try {
         final pb = PocketBase(pbUrl);
         pb.authStore.save(token, null);

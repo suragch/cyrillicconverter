@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:http/http.dart' as http;
 import 'package:http/http.dart';
 import 'package:backend/database.dart';
 import 'package:test/test.dart';
@@ -11,8 +13,10 @@ void main() {
   final testDbPath = 'test_server_dictionary.db';
   const testModToken = 'test-moderator-secret-123';
   const testAdminToken = 'test-admin-secret-456';
+  const testUserToken = 'test-regular-user-789';
   final modHeaders = {'Authorization': 'Bearer $testModToken'};
   final adminHeaders = {'Authorization': 'Bearer $testAdminToken'};
+  final userHeaders = {'Authorization': 'Bearer $testUserToken'};
   late Process p;
 
   setUpAll(() async {
@@ -48,6 +52,7 @@ void main() {
         'DB_PATH': testDbPath,
         'TEST_MODERATOR_TOKEN': testModToken,
         'TEST_ADMIN_TOKEN': testAdminToken,
+        'TEST_USER_TOKEN': testUserToken,
       },
     );
     // Listen for startup output
@@ -738,6 +743,132 @@ void main() {
 
       checkRes = await get(Uri.parse('$host/words/check?cyrillic=шинэүгтест'));
       expect(jsonDecode(checkRes.body)['exists'], false);
+
+      // Deleting non-existent definition returns 404 with deleted: false
+      final delMissingRes = await post(
+        Uri.parse('$host/admin/definitions/delete'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({'cyrillic': 'шинэүгтест', 'menksoft': 'menk_v2'}),
+      );
+      expect(delMissingRes.statusCode, 404);
+      expect(jsonDecode(delMissingRes.body)['deleted'], false);
+
+      // Setting primary on non-existent definition returns 404
+      final primaryMissingRes = await post(
+        Uri.parse('$host/admin/definitions/primary'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({'cyrillic': 'шинэүгтест', 'menksoft': 'menk_v2'}),
+      );
+      expect(primaryMissingRes.statusCode, 404);
+      expect(jsonDecode(primaryMissingRes.body)['updated'], false);
+    },
+  );
+
+  test(
+    'Convert preserves newlines, compound punctuation, and paired straight quotes',
+    () async {
+      final response = await post(
+        Uri.parse('$host/convert'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text': '"Сайн" байна...\n\n"Сайн уу?!"'}),
+      );
+      expect(response.statusCode, 200);
+      final tokens = jsonDecode(response.body)['tokens'] as List;
+
+      // Quote parity on paragraph 1: open \uE259, close \uE25A
+      expect(tokens[0]['type'], 'delimiter');
+      expect(tokens[0]['menksoft'], '\uE259');
+      expect(tokens[2]['type'], 'delimiter');
+      expect(tokens[2]['menksoft'], '\uE25A');
+
+      // Compound delimiter '...\n\n' -> ellipsis \uE235 and newline space preserved
+      expect(tokens[5]['type'], 'delimiter');
+      expect(tokens[5]['menksoft'], '\uE235');
+      expect(tokens[6]['type'], 'space');
+      expect(tokens[6]['menksoft'], '\n\n');
+
+      // Paragraph 2 resets quote parity and handles ?!"
+      expect(tokens[7]['menksoft'], '\uE259');
+      expect(tokens.last['type'], 'delimiter');
+      expect(tokens.last['menksoft'], '\uE24E\uE25A');
+    },
+  );
+
+  test('Chunked request exceeding 512KB is rejected with 413', () async {
+    final req = http.StreamedRequest('POST', Uri.parse('$host/convert'));
+    req.headers['Content-Type'] = 'application/json';
+    unawaited(
+      Future(() async {
+        req.sink.add(utf8.encode('{"text":"'));
+        final chunk = utf8.encode('a' * (64 * 1024));
+        for (var i = 0; i < 10; i++) {
+          req.sink.add(chunk);
+        }
+        req.sink.add(utf8.encode('"}'));
+        await req.sink.close();
+      }),
+    );
+
+    final client = http.Client();
+    try {
+      final streamedRes = await client.send(req);
+      expect(streamedRes.statusCode, 413);
+      final body = await streamedRes.stream.bytesToString();
+      expect(
+        jsonDecode(body)['error'],
+        'Payload exceeds maximum limit of 512KB',
+      );
+    } finally {
+      client.close();
+    }
+  });
+
+  test(
+    '/auth/me returns isModerator accurately and /admin/missing returns total',
+    () async {
+      final userMeRes = await get(
+        Uri.parse('$host/auth/me'),
+        headers: userHeaders,
+      );
+      expect(userMeRes.statusCode, 200);
+      final userMe = jsonDecode(userMeRes.body);
+      expect(userMe['isModerator'], false);
+      expect(userMe['user']['isModerator'], false);
+
+      // Regular authenticated user cannot access /admin/suggestions
+      final forbiddenRes = await get(
+        Uri.parse('$host/admin/suggestions'),
+        headers: userHeaders,
+      );
+      expect(forbiddenRes.statusCode, 403);
+
+      // Moderator /auth/me returns isModerator: true
+      final modMeRes = await get(
+        Uri.parse('$host/auth/me'),
+        headers: modHeaders,
+      );
+      expect(modMeRes.statusCode, 200);
+      final modMe = jsonDecode(modMeRes.body);
+      expect(modMe['isModerator'], true);
+      expect(modMe['user']['isModerator'], true);
+
+      // /admin/missing includes total count
+      final missingRes = await get(
+        Uri.parse('$host/admin/missing?min_frequency=1&limit=1'),
+        headers: modHeaders,
+      );
+      expect(missingRes.statusCode, 200);
+      final missingJson = jsonDecode(missingRes.body);
+      expect(missingJson['total'], isA<int>());
+      expect(missingJson['total'] as int, greaterThanOrEqualTo(1));
+
+      // /admin/words rejects non-Cyrillic or empty menksoft
+      final badWordRes = await post(
+        Uri.parse('$host/admin/words'),
+        headers: {'Content-Type': 'application/json', ...modHeaders},
+        body: jsonEncode({'cyrillic': 'test_abc', 'menksoft': 'abc'}),
+      );
+      expect(badWordRes.statusCode, 400);
     },
   );
 }

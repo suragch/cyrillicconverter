@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +36,7 @@ class ModeratorPage extends StatefulWidget {
 class _ModeratorPageState extends State<ModeratorPage> {
   int _activeQueueTab = 0; // 0: Suggestions, 1: Missing words
   List<dynamic> _missingWords = [];
+  int _totalMissing = 0;
   List<dynamic> _suggestions = [];
   int _totalSuggestions = 0;
   String? _selectedTargetMenksoft;
@@ -42,15 +44,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
   // Suggestions Queue State
   int _currentIndex = 0;
   bool _isCheckingCurrentWord = false;
+  int _currentWordCheckRequestId = 0;
   Map<String, dynamic>? _currentWordCheckResult;
 
   // Missing Words Queue State
   int _missingIndex = 0;
   bool _isCheckingMissingWord = false;
+  int _missingWordCheckRequestId = 0;
   Map<String, dynamic>? _missingWordCheckResult;
   int _minFrequency = 2; // Default to frequency >= 2
 
   bool _isLoading = false;
+  bool _isActionInProgress = false;
   bool _isDownloadingDb = false;
   String? _error;
 
@@ -107,17 +112,26 @@ class _ModeratorPageState extends State<ModeratorPage> {
       if (res.statusCode == 200) {
         final dateStr = DateTime.now().toIso8601String().split('T').first;
         final filename = 'cyrillic_dictionary_full_$dateStr.db';
-        downloadFileFromBytes(
+        final saved = downloadFileFromBytes(
           res.bodyBytes,
           filename,
           'application/vnd.sqlite3',
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$filename амжилттай татагдлаа.'),
-            backgroundColor: DesktopTheme.textPrimary,
-          ),
-        );
+        if (saved) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$filename амжилттай татагдлаа.'),
+              backgroundColor: DesktopTheme.textPrimary,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Файл хадгалахад алдаа гарлаа.'),
+              backgroundColor: DesktopTheme.danger,
+            ),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -167,6 +181,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
           )
           .timeout(const Duration(seconds: 8));
 
+      if (!mounted) {
+        return;
+      }
+
       if (missingRes.statusCode == 200 && suggRes.statusCode == 200) {
         final missingData = jsonDecode(missingRes.body);
         final suggData = jsonDecode(suggRes.body);
@@ -174,9 +192,12 @@ class _ModeratorPageState extends State<ModeratorPage> {
         final newSuggestions = (suggData['suggestions'] as List?) ?? [];
         final newMissing = (missingData['missing'] as List?) ?? [];
         final totalCount = (suggData['total'] as int?) ?? newSuggestions.length;
+        final totalMissingCount =
+            (missingData['total'] as int?) ?? newMissing.length;
 
         setState(() {
           _missingWords = newMissing;
+          _totalMissing = totalMissingCount;
           _suggestions = newSuggestions;
           _totalSuggestions = totalCount;
 
@@ -201,36 +222,78 @@ class _ModeratorPageState extends State<ModeratorPage> {
         });
       }
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _error = 'Холболтын алдаа: $e';
       });
     } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshSuggestionsOnly() async {
+    try {
+      final suggRes = await http
+          .get(
+            Uri.parse('${widget.serverUrl}/admin/suggestions?limit=100'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (!mounted || suggRes.statusCode != 200) {
+        return;
+      }
+      final suggData = jsonDecode(suggRes.body);
+      final newSuggestions = (suggData['suggestions'] as List?) ?? [];
+      final totalCount = (suggData['total'] as int?) ?? newSuggestions.length;
+
       setState(() {
-        _isLoading = false;
+        _suggestions = newSuggestions;
+        _totalSuggestions = totalCount;
+        if (_currentIndex >= _suggestions.length) {
+          _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
+        }
       });
+      widget.onCountChanged?.call(_totalSuggestions);
+      if (_activeQueueTab == 0) {
+        _checkWordForCurrent();
+      }
+    } catch (_) {
+      // Best-effort refresh
     }
   }
 
   // --- Suggestions Queue Helpers ---
 
   Future<void> _checkWordForCurrent() async {
+    final requestId = ++_currentWordCheckRequestId;
     if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
-      setState(() {
-        _currentWordCheckResult = null;
-        _isCheckingCurrentWord = false;
-        _selectedTargetMenksoft = null;
-      });
+      if (mounted) {
+        setState(() {
+          _currentWordCheckResult = null;
+          _isCheckingCurrentWord = false;
+          _selectedTargetMenksoft = null;
+        });
+      }
       return;
     }
 
     final current = _suggestions[_currentIndex];
     final cyrillic = (current['cyrillic'] as String?)?.trim() ?? '';
     if (cyrillic.isEmpty) {
-      setState(() {
-        _currentWordCheckResult = null;
-        _isCheckingCurrentWord = false;
-        _selectedTargetMenksoft = null;
-      });
+      if (mounted) {
+        setState(() {
+          _currentWordCheckResult = null;
+          _isCheckingCurrentWord = false;
+          _selectedTargetMenksoft = null;
+        });
+      }
       return;
     }
 
@@ -250,16 +313,27 @@ class _ModeratorPageState extends State<ModeratorPage> {
           )
           .timeout(const Duration(seconds: 5));
 
-      if (res.statusCode == 200 && mounted) {
+      if (!mounted || requestId != _currentWordCheckRequestId) {
+        return;
+      }
+      if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final defs = (data['definitions'] as List?) ?? [];
         final curr = (_currentIndex < _suggestions.length)
             ? _suggestions[_currentIndex]
             : null;
+        final currCyr = (curr?['cyrillic'] as String?)?.trim() ?? '';
+        if (currCyr != cyrillic) {
+          return;
+        }
         final target = (curr?['target_menksoft'] as String?)?.trim();
 
         String? initTarget;
-        if (target != null && target.isNotEmpty) {
+        if (target != null &&
+            target.isNotEmpty &&
+            defs.any(
+              (d) => ((d as Map)['menksoft'] as String?)?.trim() == target,
+            )) {
           initTarget = target;
         } else if (defs.length == 1) {
           initTarget = (defs.first['menksoft'] as String?)?.trim();
@@ -273,7 +347,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     } catch (_) {
       // Ignore network errors or 404
     } finally {
-      if (mounted) {
+      if (mounted && requestId == _currentWordCheckRequestId) {
         setState(() {
           _isCheckingCurrentWord = false;
         });
@@ -301,20 +375,41 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String action = 'add_primary',
     String? targetMenksoft,
   }) async {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+    if (_isActionInProgress ||
+        _suggestions.isEmpty ||
+        _currentIndex >= _suggestions.length) {
       return;
     }
     final current = _suggestions[_currentIndex];
     final id = current['id'] as int;
     final cyrillic = current['cyrillic'] as String;
     final menksoft = current['menksoft_code'] as String;
+    final submittedBy = current['submitted_by'] as String?;
     String? note = (current['explanation'] as String?)?.trim();
+    if (EditSuggestionDialog.isAutoGeneratedEckNote(note, submittedBy)) {
+      note = null;
+    }
 
     final exists = _currentWordCheckResult?['exists'] == true;
     final definitions =
         (_currentWordCheckResult?['definitions'] as List?) ?? [];
 
     final finalTargetMenksoft = targetMenksoft ?? _selectedTargetMenksoft;
+
+    if (action == 'replace' &&
+        exists &&
+        definitions.length > 1 &&
+        (finalTargetMenksoft == null || finalTargetMenksoft.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Солих бичлэгийг баруун талын жагсаалтаас дарж сонгоно уу.',
+          ),
+          backgroundColor: DesktopTheme.warning,
+        ),
+      );
+      return;
+    }
 
     // Check if duplicate of an existing definition (only if adding a new definition)
     if (action != 'replace' && action != 'resolve_only') {
@@ -362,69 +457,16 @@ class _ModeratorPageState extends State<ModeratorPage> {
       if (!mounted) {
         return;
       }
-      if (exists && (note == null || note.isEmpty)) {
-        final inputController = TextEditingController();
+      if (exists && !alreadyIdentical && (note == null || note.isEmpty)) {
         final addedNote = await showDialog<String>(
           context: context,
-          builder: (ctx) => DesktopDialogFrame(
-            title: 'Олон утгатай үг (Homonym)',
-            maxWidth: 440,
-            leadingIcon: const Icon(
-              Icons.warning_amber_rounded,
-              size: 18,
-              color: DesktopTheme.warning,
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '"$cyrillic" кирилл үг толь бичигт өмнө нь өөр бичлэгтэй бүртгэгдсэн байна.\n'
-                  'Энэ хоёрыг хэрэглэгч ялгахын тулд ялгах тэмдэглэл/тайлбар оруулна уу:',
-                  style: DesktopTheme.body,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: inputController,
-                  autofocus: true,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(
-                    labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
-                    border: OutlineInputBorder(
-                      borderRadius: DesktopTheme.roundedSmall,
-                    ),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  onSubmitted: (val) => Navigator.pop(ctx, val.trim()),
-                ),
-              ],
-            ),
-            actions: [
-              DesktopButton(
-                onPressed: () => Navigator.pop(ctx, null),
-                label: 'Цуцлах',
-                variant: DesktopButtonVariant.secondary,
-                isDense: true,
-              ),
-              const SizedBox(width: 8),
-              DesktopButton(
-                onPressed: () =>
-                    Navigator.pop(ctx, inputController.text.trim()),
-                label: 'Батлах',
-                variant: DesktopButtonVariant.primary,
-                isDense: true,
-              ),
-            ],
-          ),
+          builder: (ctx) => _HomonymNoteDialog(cyrillic: cyrillic),
         );
 
         if (addedNote == null) {
           return;
         }
-        note = addedNote.isEmpty ? null : addedNote;
+        note = addedNote;
       }
     }
 
@@ -445,36 +487,65 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String? explanation,
     String action = 'add_primary',
     String? targetMenksoft,
+    bool rethrowOnError = false,
   }) async {
+    if (_isActionInProgress) {
+      return;
+    }
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/suggestions/approve'),
-        headers: _headers,
-        body: jsonEncode({
-          'id': id,
-          'cyrillic': cyrillic,
-          'menksoft': menksoft,
-          'explanation': explanation,
-          'action': action,
-          'targetMenksoft': targetMenksoft,
-          'moderatorId': widget.moderatorId,
-        }),
-      );
+      final body = <String, dynamic>{
+        'id': id,
+        'cyrillic': cyrillic,
+        'menksoft': menksoft,
+        'action': action,
+        'targetMenksoft': targetMenksoft,
+        'moderatorId': widget.moderatorId,
+      };
+      if (explanation != null) {
+        body['explanation'] = explanation;
+      }
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/suggestions/approve'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (!mounted) {
         return;
       }
       if (res.statusCode == 200) {
-        _advanceQueue();
+        _removeSuggestionById(
+          id,
+          autoResolvedCyrillic: action != 'resolve_only' ? cyrillic : null,
+          autoResolvedMenksoft: action != 'resolve_only' ? menksoft : null,
+        );
+      } else if (res.statusCode == 404 || res.statusCode == 409) {
+        _removeSuggestionById(id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Энэ санал аль хэдийн шийдвэрлэгдсэн байна.'),
+            backgroundColor: DesktopTheme.warning,
+          ),
+        );
       } else {
+        final message = 'Алдаа гарлаа (${res.statusCode}): ${res.body}';
+        if (rethrowOnError) {
+          throw Exception(message);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Алдаа гарлаа: ${res.body}'),
+            content: Text(message),
             backgroundColor: DesktopTheme.danger,
           ),
         );
       }
     } catch (e) {
+      if (rethrowOnError) {
+        rethrow;
+      }
       if (!mounted) {
         return;
       }
@@ -484,36 +555,53 @@ class _ModeratorPageState extends State<ModeratorPage> {
           backgroundColor: DesktopTheme.danger,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
   Future<void> _handleRejectCurrent(String reason) async {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+    if (_isActionInProgress ||
+        _suggestions.isEmpty ||
+        _currentIndex >= _suggestions.length) {
       return;
     }
     final current = _suggestions[_currentIndex];
     final id = current['id'] as int;
 
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/suggestions/reject'),
-        headers: _headers,
-        body: jsonEncode({
-          'id': id,
-          'reason': reason,
-          'moderatorId': widget.moderatorId,
-        }),
-      );
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/suggestions/reject'),
+            headers: _headers,
+            body: jsonEncode({
+              'id': id,
+              'reason': reason,
+              'moderatorId': widget.moderatorId,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (!mounted) {
         return;
       }
       if (res.statusCode == 200) {
-        _advanceQueue();
+        _removeSuggestionById(id);
+      } else if (res.statusCode == 404 || res.statusCode == 409) {
+        _removeSuggestionById(id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Энэ санал аль хэдийн шийдвэрлэгдсэн байна.'),
+            backgroundColor: DesktopTheme.warning,
+          ),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Алдаа гарлаа: ${res.body}'),
+            content: Text('Алдаа гарлаа (${res.statusCode}): ${res.body}'),
             backgroundColor: DesktopTheme.danger,
           ),
         );
@@ -528,15 +616,49 @@ class _ModeratorPageState extends State<ModeratorPage> {
           backgroundColor: DesktopTheme.danger,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
-  void _advanceQueue() {
+  void _removeSuggestionById(
+    int id, {
+    String? autoResolvedCyrillic,
+    String? autoResolvedMenksoft,
+  }) {
+    final beforeCount = _suggestions.length;
     setState(() {
-      _suggestions.removeAt(_currentIndex);
-      if (_totalSuggestions > 0) {
-        _totalSuggestions--;
-      }
+      _suggestions.removeWhere((s) {
+        if (s['id'] == id) {
+          return true;
+        }
+        if (autoResolvedCyrillic != null &&
+            autoResolvedMenksoft != null &&
+            autoResolvedMenksoft.trim().isNotEmpty) {
+          final sameWord =
+              LatinIme.normalizeCyrillic((s['cyrillic'] as String?) ?? '') ==
+              LatinIme.normalizeCyrillic(autoResolvedCyrillic);
+          final hasComment =
+              (s['comment'] as String?)?.trim().isNotEmpty == true;
+          if (sameWord && !hasComment) {
+            final isDiscrepancy = s['submitted_by'] == 'db_discrepancy_review';
+            final sameMenksoft =
+                ((s['menksoft_code'] as String?)?.trim() ?? '') ==
+                autoResolvedMenksoft.trim();
+            if (isDiscrepancy || sameMenksoft) {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
+      final removedCount = beforeCount - _suggestions.length;
+      _totalSuggestions = (_totalSuggestions - removedCount).clamp(
+        0,
+        _totalSuggestions,
+      );
       if (_currentIndex >= _suggestions.length) {
         _currentIndex = _suggestions.isEmpty ? 0 : _suggestions.length - 1;
       }
@@ -550,7 +672,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   void _openEditDialog() {
-    if (_suggestions.isEmpty || _currentIndex >= _suggestions.length) {
+    if (_isActionInProgress ||
+        _suggestions.isEmpty ||
+        _currentIndex >= _suggestions.length) {
       return;
     }
     final current = _suggestions[_currentIndex];
@@ -562,8 +686,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         initialMenksoft: current['menksoft_code'] as String,
         initialExplanation: current['explanation'] as String?,
         initialComment: current['comment'] as String?,
-        targetMenksoft:
-            _selectedTargetMenksoft ?? (current['target_menksoft'] as String?),
+        explicitTargetMenksoft: current['target_menksoft'] as String?,
+        selectedTargetMenksoft: _selectedTargetMenksoft,
+        submittedBy: current['submitted_by'] as String?,
         serverUrl: widget.serverUrl,
         authToken: widget.authToken,
         onSave:
@@ -583,6 +708,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   explanation: explanation,
                   action: action,
                   targetMenksoft: targetMenksoft,
+                  rethrowOnError: true,
                 );
               } else {
                 setState(() {
@@ -598,23 +724,39 @@ class _ModeratorPageState extends State<ModeratorPage> {
   }
 
   Future<void> _setPrimaryForWord(String cyrillic, String menksoft) async {
+    if (_isActionInProgress) {
+      return;
+    }
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
-        headers: _headers,
-        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
-      );
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
+            headers: _headers,
+            body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) {
+        return;
+      }
+      bool updated = false;
       if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        updated = data['updated'] == true;
+      }
+      if (updated) {
         _checkWordForCurrent();
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Алдаа гарлаа: ${res.body}'),
-              backgroundColor: DesktopTheme.danger,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Үндсэн утга болгож чадсангүй (${res.statusCode}): ${res.body}',
             ),
-          );
-        }
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+        _checkWordForCurrent();
       }
     } catch (e) {
       if (mounted) {
@@ -625,6 +767,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
@@ -632,6 +778,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String cyrillic,
     String menksoft,
   ) async {
+    if (_isActionInProgress) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -651,27 +800,45 @@ class _ModeratorPageState extends State<ModeratorPage> {
         ],
       ),
     );
-    if (confirmed != true) {
+    if (confirmed != true || !mounted) {
       return;
     }
 
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
-        headers: _headers,
-        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
-      );
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
+            headers: _headers,
+            body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) {
+        return;
+      }
+      bool deleted = false;
       if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        deleted = data['deleted'] == true;
+      }
+      if (deleted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$cyrillic" үгийн бичлэг устгагдлаа.'),
+            backgroundColor: DesktopTheme.textPrimary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
         _checkWordForCurrent();
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Алдаа гарлаа: ${res.body}'),
-              backgroundColor: DesktopTheme.danger,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Устгаж чадсангүй (${res.statusCode}): ${res.body}'),
+            backgroundColor: DesktopTheme.danger,
+          ),
+        );
+        _checkWordForCurrent();
       }
     } catch (e) {
       if (mounted) {
@@ -682,27 +849,36 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
   // --- Missing Words Queue Helpers ---
 
   Future<void> _checkWordForMissing() async {
+    final requestId = ++_missingWordCheckRequestId;
     if (_missingWords.isEmpty || _missingIndex >= _missingWords.length) {
-      setState(() {
-        _missingWordCheckResult = null;
-        _isCheckingMissingWord = false;
-      });
+      if (mounted) {
+        setState(() {
+          _missingWordCheckResult = null;
+          _isCheckingMissingWord = false;
+        });
+      }
       return;
     }
 
     final current = _missingWords[_missingIndex];
     final cyrillic = (current['cyrillic'] as String?)?.trim() ?? '';
     if (cyrillic.isEmpty) {
-      setState(() {
-        _missingWordCheckResult = null;
-        _isCheckingMissingWord = false;
-      });
+      if (mounted) {
+        setState(() {
+          _missingWordCheckResult = null;
+          _isCheckingMissingWord = false;
+        });
+      }
       return;
     }
 
@@ -721,8 +897,18 @@ class _ModeratorPageState extends State<ModeratorPage> {
           )
           .timeout(const Duration(seconds: 5));
 
-      if (res.statusCode == 200 && mounted) {
+      if (!mounted || requestId != _missingWordCheckRequestId) {
+        return;
+      }
+      if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final curr = (_missingIndex < _missingWords.length)
+            ? _missingWords[_missingIndex]
+            : null;
+        final currCyr = (curr?['cyrillic'] as String?)?.trim() ?? '';
+        if (currCyr != cyrillic) {
+          return;
+        }
         setState(() {
           _missingWordCheckResult = data;
         });
@@ -730,7 +916,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
     } catch (_) {
       // Ignore
     } finally {
-      if (mounted) {
+      if (mounted && requestId == _missingWordCheckRequestId) {
         setState(() => _isCheckingMissingWord = false);
       }
     }
@@ -752,35 +938,66 @@ class _ModeratorPageState extends State<ModeratorPage> {
     }
   }
 
+  void _removeMissingByCyrillic(String cyrillic) {
+    final normTarget = LatinIme.normalizeCyrillic(cyrillic);
+    final beforeCount = _missingWords.length;
+    setState(() {
+      _missingWords.removeWhere((item) {
+        final itemCyr = (item['cyrillic'] as String?)?.trim() ?? '';
+        return itemCyr == cyrillic.trim() ||
+            LatinIme.normalizeCyrillic(itemCyr) == normTarget ||
+            itemCyr.toLowerCase() == cyrillic.trim().toLowerCase();
+      });
+      final removed = beforeCount - _missingWords.length;
+      if (removed > 0) {
+        _totalMissing = (_totalMissing - removed).clamp(0, _totalMissing);
+      }
+      if (_missingIndex >= _missingWords.length) {
+        _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
+      }
+    });
+    if (_missingWords.isEmpty && _totalMissing > 0) {
+      _loadData();
+    } else {
+      _checkWordForMissing();
+    }
+  }
+
   Future<void> _handleRejectMissing(String cyrillic, String reason) async {
+    if (_isActionInProgress) {
+      return;
+    }
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/missing/reject'),
-        headers: _headers,
-        body: jsonEncode({
-          'cyrillic': cyrillic,
-          'reason': reason,
-          'moderatorId': widget.moderatorId,
-        }),
-      );
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/missing/reject'),
+            headers: _headers,
+            body: jsonEncode({
+              'cyrillic': cyrillic,
+              'reason': reason,
+              'moderatorId': widget.moderatorId,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (!mounted) {
         return;
       }
       if (res.statusCode == 200) {
-        setState(() {
-          _missingWords.removeAt(_missingIndex);
-          if (_missingIndex >= _missingWords.length) {
-            _missingIndex = _missingWords.isEmpty
-                ? 0
-                : _missingWords.length - 1;
-          }
-        });
-        _checkWordForMissing();
+        _removeMissingByCyrillic(cyrillic);
+      } else if (res.statusCode == 404) {
+        _removeMissingByCyrillic(cyrillic);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Энэ үг аль хэдийн жагсаалтаас хасагдсан байна.'),
+            backgroundColor: DesktopTheme.warning,
+          ),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Алдаа гарлаа: ${res.body}'),
+            content: Text('Алдаа гарлаа (${res.statusCode}): ${res.body}'),
             backgroundColor: DesktopTheme.danger,
           ),
         );
@@ -795,6 +1012,10 @@ class _ModeratorPageState extends State<ModeratorPage> {
           backgroundColor: DesktopTheme.danger,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
@@ -806,32 +1027,38 @@ class _ModeratorPageState extends State<ModeratorPage> {
     String? comment,
     bool isPrimary = true,
   }) async {
-    final res = await http.post(
-      Uri.parse('${widget.serverUrl}/admin/words'),
-      headers: _headers,
-      body: jsonEncode({
-        'cyrillic': cyrillic,
-        'menksoft': menksoft,
-        'explanation': explanation,
-        'isPrimary': isPrimary,
-        'moderatorId': widget.moderatorId,
-      }),
-    );
-    if (!mounted) {
-      return;
+    if (_isActionInProgress) {
+      throw Exception('Өмнөх үйлдэл хийгдэж байна');
     }
-    if (res.statusCode == 200) {
-      setState(() {
-        _missingWords.removeWhere(
-          (item) =>
-              (item['cyrillic'] as String?)?.trim().toLowerCase() ==
-              cyrillic.trim().toLowerCase(),
-        );
-        if (_missingIndex >= _missingWords.length) {
-          _missingIndex = _missingWords.isEmpty ? 0 : _missingWords.length - 1;
-        }
-      });
-      _checkWordForMissing();
+    setState(() => _isActionInProgress = true);
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/words'),
+            headers: _headers,
+            body: jsonEncode({
+              'cyrillic': cyrillic,
+              'menksoft': menksoft,
+              'explanation': explanation,
+              'isPrimary': isPrimary,
+              'moderatorId': widget.moderatorId,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) {
+        return;
+      }
+      if (res.statusCode == 200) {
+        _removeMissingByCyrillic(cyrillic);
+        unawaited(_refreshSuggestionsOnly());
+      } else {
+        throw Exception('Серверийн алдаа (${res.statusCode}): ${res.body}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
+      }
     }
   }
 
@@ -863,6 +1090,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
 
       if (key == LogicalKeyboardKey.digit1 ||
           key == LogicalKeyboardKey.numpad1) {
+        if (_isActionInProgress || _isCheckingCurrentWord) {
+          return KeyEventResult.handled;
+        }
         final current = _suggestions[_currentIndex];
         final menksoft = (current['menksoft_code'] as String?)?.trim() ?? '';
         final exists = _currentWordCheckResult?['exists'] == true;
@@ -879,6 +1109,9 @@ class _ModeratorPageState extends State<ModeratorPage> {
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.digit4 ||
           key == LogicalKeyboardKey.numpad4) {
+        if (_isActionInProgress || _isCheckingCurrentWord) {
+          return KeyEventResult.handled;
+        }
         final current = _suggestions[_currentIndex];
         final menksoft = (current['menksoft_code'] as String?)?.trim() ?? '';
         final exists = _currentWordCheckResult?['exists'] == true;
@@ -888,14 +1121,22 @@ class _ModeratorPageState extends State<ModeratorPage> {
         }
       } else if (key == LogicalKeyboardKey.digit2 ||
           key == LogicalKeyboardKey.numpad2) {
+        if (_isActionInProgress) {
+          return KeyEventResult.handled;
+        }
         _handleRejectCurrent('Кирилл бичгийн алдаатай');
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.digit3 ||
           key == LogicalKeyboardKey.numpad3) {
+        if (_isActionInProgress) {
+          return KeyEventResult.handled;
+        }
         _handleRejectCurrent('Кирилл үг биш');
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.keyE) {
-        _openEditDialog();
+        if (!_isActionInProgress) {
+          _openEditDialog();
+        }
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.space ||
           key == LogicalKeyboardKey.arrowRight) {
@@ -918,14 +1159,22 @@ class _ModeratorPageState extends State<ModeratorPage> {
       if (key == LogicalKeyboardKey.digit1 ||
           key == LogicalKeyboardKey.numpad1 ||
           key == LogicalKeyboardKey.keyE) {
-        _openDefineMissingDialog(cyrillic);
+        if (!_isActionInProgress) {
+          _openDefineMissingDialog(cyrillic);
+        }
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.digit2 ||
           key == LogicalKeyboardKey.numpad2) {
+        if (_isActionInProgress) {
+          return KeyEventResult.handled;
+        }
         _handleRejectMissing(cyrillic, 'Кирилл бичгийн алдаатай');
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.digit3 ||
           key == LogicalKeyboardKey.numpad3) {
+        if (_isActionInProgress) {
+          return KeyEventResult.handled;
+        }
         _handleRejectMissing(cyrillic, 'Кирилл үг биш');
         return KeyEventResult.handled;
       } else if (key == LogicalKeyboardKey.space ||
@@ -999,11 +1248,7 @@ class _ModeratorPageState extends State<ModeratorPage> {
             count: _totalSuggestions,
           ),
           const SizedBox(width: 8),
-          _buildQueueTabBtn(
-            index: 1,
-            label: 'Дутуу үгс',
-            count: _missingWords.length,
-          ),
+          _buildQueueTabBtn(index: 1, label: 'Дутуу үгс', count: _totalMissing),
 
           if (_activeQueueTab == 1) ...[
             const SizedBox(width: 16),
@@ -1833,24 +2078,29 @@ class _ModeratorPageState extends State<ModeratorPage> {
                                                     icon: Icons.star_border,
                                                     tooltip: 'Үндсэн болгох',
                                                     size: 13,
-                                                    onPressed: () {
-                                                      _setPrimaryForWord(
-                                                        cyrillic,
-                                                        dMenk,
-                                                      );
-                                                    },
+                                                    onPressed:
+                                                        _isActionInProgress
+                                                        ? null
+                                                        : () {
+                                                            _setPrimaryForWord(
+                                                              cyrillic,
+                                                              dMenk,
+                                                            );
+                                                          },
                                                   ),
                                                 DesktopIconButton(
                                                   icon: Icons.delete_outline,
                                                   tooltip: 'Устгах',
                                                   size: 13,
                                                   color: DesktopTheme.danger,
-                                                  onPressed: () {
-                                                    _deleteDefinitionForWord(
-                                                      cyrillic,
-                                                      dMenk,
-                                                    );
-                                                  },
+                                                  onPressed: _isActionInProgress
+                                                      ? null
+                                                      : () {
+                                                          _deleteDefinitionForWord(
+                                                            cyrillic,
+                                                            dMenk,
+                                                          );
+                                                        },
                                                 ),
                                               ],
                                             ),
@@ -1923,37 +2173,55 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   children: [
                     if (menksoft.trim().isNotEmpty && !exists)
                       DesktopButton(
-                        onPressed: () {
-                          _handleApproveCurrent(action: 'add_primary');
-                        },
+                        onPressed:
+                            (_isActionInProgress || _isCheckingCurrentWord)
+                            ? null
+                            : () {
+                                _handleApproveCurrent(action: 'add_primary');
+                              },
                         label: 'Зөвшөөрөх (Үндсэн)',
                         shortcutHint: '1',
                         variant: DesktopButtonVariant.primary,
                       ),
                     if (menksoft.trim().isNotEmpty && exists) ...[
                       DesktopButton(
-                        onPressed: () {
-                          _handleApproveCurrent(
-                            action: 'replace',
-                            targetMenksoft: _selectedTargetMenksoft,
-                          );
-                        },
+                        onPressed:
+                            (_isActionInProgress ||
+                                _isCheckingCurrentWord ||
+                                (definitions.length > 1 &&
+                                    (_selectedTargetMenksoft == null ||
+                                        _selectedTargetMenksoft!
+                                            .trim()
+                                            .isEmpty)))
+                            ? null
+                            : () {
+                                _handleApproveCurrent(
+                                  action: 'replace',
+                                  targetMenksoft: _selectedTargetMenksoft,
+                                );
+                              },
                         label: 'Одоогийн бичлэгийг солих',
                         shortcutHint: '1',
                         variant: DesktopButtonVariant.primary,
                       ),
                       DesktopButton(
-                        onPressed: () {
-                          _handleApproveCurrent(action: 'add_secondary');
-                        },
+                        onPressed:
+                            (_isActionInProgress || _isCheckingCurrentWord)
+                            ? null
+                            : () {
+                                _handleApproveCurrent(action: 'add_secondary');
+                              },
                         label: 'Нэмэлт хувилбараар нэмэх',
                         shortcutHint: '4',
                         variant: DesktopButtonVariant.secondary,
                       ),
                       DesktopButton(
-                        onPressed: () {
-                          _handleApproveCurrent(action: 'add_primary');
-                        },
+                        onPressed:
+                            (_isActionInProgress || _isCheckingCurrentWord)
+                            ? null
+                            : () {
+                                _handleApproveCurrent(action: 'add_primary');
+                              },
                         label: 'Үндсэн болгож нэмэх',
                         variant: DesktopButtonVariant.secondary,
                       ),
@@ -1962,31 +2230,37 @@ class _ModeratorPageState extends State<ModeratorPage> {
                         ((current['comment'] as String?)?.trim().isNotEmpty ==
                             true))
                       DesktopButton(
-                        onPressed: () {
-                          _handleApproveCurrent(action: 'resolve_only');
-                        },
+                        onPressed: _isActionInProgress
+                            ? null
+                            : () {
+                                _handleApproveCurrent(action: 'resolve_only');
+                              },
                         label: 'Шийдвэрлэсэн (Хаах)',
                         shortcutHint: menksoft.trim().isEmpty ? '1' : null,
                         variant: DesktopButtonVariant.secondary,
                       ),
                     DesktopButton(
-                      onPressed: () {
-                        _handleRejectCurrent('Кирилл бичгийн алдаатай');
-                      },
+                      onPressed: _isActionInProgress
+                          ? null
+                          : () {
+                              _handleRejectCurrent('Кирилл бичгийн алдаатай');
+                            },
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
-                      onPressed: () {
-                        _handleRejectCurrent('Кирилл үг биш');
-                      },
+                      onPressed: _isActionInProgress
+                          ? null
+                          : () {
+                              _handleRejectCurrent('Кирилл үг биш');
+                            },
                       label: 'Үг биш',
                       shortcutHint: '3',
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
-                      onPressed: _openEditDialog,
+                      onPressed: _isActionInProgress ? null : _openEditDialog,
                       label: 'Засах',
                       shortcutHint: 'E',
                       variant: DesktopButtonVariant.secondary,
@@ -2105,7 +2379,8 @@ class _ModeratorPageState extends State<ModeratorPage> {
                             ),
                           ),
                           child: Text(
-                            'Дутуу үг ${_missingIndex + 1} / ${_missingWords.length}',
+                            'Дутуу үг ${_missingIndex + 1} / ${_missingWords.length}'
+                            '${_totalMissing > _missingWords.length ? ' (нийт $_totalMissing)' : ''}',
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
@@ -2309,23 +2584,29 @@ class _ModeratorPageState extends State<ModeratorPage> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     DesktopButton(
-                      onPressed: () => _openDefineMissingDialog(cyrillic),
+                      onPressed: _isActionInProgress
+                          ? null
+                          : () => _openDefineMissingDialog(cyrillic),
                       label: 'Тодорхойлох / Нэмэх',
                       shortcutHint: '1 / E',
                       variant: DesktopButtonVariant.primary,
                     ),
                     DesktopButton(
-                      onPressed: () => _handleRejectMissing(
-                        cyrillic,
-                        'Кирилл бичгийн алдаатай',
-                      ),
+                      onPressed: _isActionInProgress
+                          ? null
+                          : () => _handleRejectMissing(
+                              cyrillic,
+                              'Кирилл бичгийн алдаатай',
+                            ),
                       label: 'Кирилл алдаатай',
                       shortcutHint: '2',
                       variant: DesktopButtonVariant.danger,
                     ),
                     DesktopButton(
-                      onPressed: () =>
-                          _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
+                      onPressed: _isActionInProgress
+                          ? null
+                          : () =>
+                                _handleRejectMissing(cyrillic, 'Кирилл үг биш'),
                       label: 'Үг биш',
                       shortcutHint: '3',
                       variant: DesktopButtonVariant.danger,
@@ -2343,6 +2624,81 @@ class _ModeratorPageState extends State<ModeratorPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _HomonymNoteDialog extends StatefulWidget {
+  final String cyrillic;
+
+  const _HomonymNoteDialog({required this.cyrillic});
+
+  @override
+  State<_HomonymNoteDialog> createState() => _HomonymNoteDialogState();
+}
+
+class _HomonymNoteDialogState extends State<_HomonymNoteDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopDialogFrame(
+      title: 'Олон утгатай үг (Homonym)',
+      maxWidth: 440,
+      leadingIcon: const Icon(
+        Icons.warning_amber_rounded,
+        size: 18,
+        color: DesktopTheme.warning,
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '"${widget.cyrillic}" кирилл үг толь бичигт өмнө нь өөр бичлэгтэй бүртгэгдсэн байна.\n'
+            'Энэ хоёрыг хэрэглэгч ялгахын тулд ялгах тэмдэглэл/тайлбар оруулна уу:',
+            style: DesktopTheme.body,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            style: const TextStyle(fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: 'Тэмдэглэл (жишээ: он жил, төр засаг)',
+              border: OutlineInputBorder(
+                borderRadius: DesktopTheme.roundedSmall,
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+            ),
+            onSubmitted: (val) => Navigator.pop(context, val.trim()),
+          ),
+        ],
+      ),
+      actions: [
+        DesktopButton(
+          onPressed: () => Navigator.pop(context, null),
+          label: 'Цуцлах',
+          variant: DesktopButtonVariant.secondary,
+          isDense: true,
+        ),
+        const SizedBox(width: 8),
+        DesktopButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          label: 'Батлах',
+          variant: DesktopButtonVariant.primary,
+          isDense: true,
+        ),
+      ],
     );
   }
 }

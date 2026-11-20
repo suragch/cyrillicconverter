@@ -216,15 +216,42 @@ class LatinIme {
   };
 
   /// Converts standard punctuation marks into vertical Menksoft glyph codes.
-  static String convertPunctuationToMenksoft(String p) {
-    if (_punctuationMap.containsKey(p)) {
-      return _punctuationMap[p]!;
-    }
+  static String convertPunctuationToMenksoft(
+    String p, {
+    bool initialQuoteOpen = false,
+  }) {
+    var quoteOpen = initialQuoteOpen;
     final buffer = StringBuffer();
-    for (var i = 0; i < p.length; i++) {
+    var i = 0;
+
+    while (i < p.length) {
+      if (i + 3 <= p.length && p.startsWith('...', i)) {
+        buffer.write(_punctuationMap['...']);
+        i += 3;
+        continue;
+      }
+      if (i + 2 <= p.length) {
+        final two = p.substring(i, i + 2);
+        if (two == '?!' || two == '!?') {
+          buffer.write(_punctuationMap[two]);
+          i += 2;
+          continue;
+        }
+      }
+
       final ch = p[i];
-      buffer.write(_punctuationMap[ch] ?? ch);
+      if (ch == '"') {
+        buffer.write(quoteOpen ? '\uE25A' : '\uE259');
+        quoteOpen = !quoteOpen;
+      } else {
+        if (ch == '\n') {
+          quoteOpen = false;
+        }
+        buffer.write(_punctuationMap[ch] ?? ch);
+      }
+      i++;
     }
+
     return buffer.toString();
   }
 

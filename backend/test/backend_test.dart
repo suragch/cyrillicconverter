@@ -580,5 +580,243 @@ void main() {
       expect(pending[2]['cyrillic'], 'үг3'); // Tier 2
       expect(pending[3]['cyrillic'], 'үг4'); // Tier 3
     });
+
+    test(
+      'All-caps fallback and trimmed menksoft work for delete, primary, and replace',
+      () {
+        appDb.addWordDefinition(
+          cyrillic: 'ном',
+          menksoft: 'menk_book_1',
+          explanation: 'анхны тайлбар',
+          isPrimary: true,
+        );
+        appDb.addWordDefinition(
+          cyrillic: 'ном',
+          menksoft: 'menk_book_2',
+          explanation: 'хоёрдогч тайлбар',
+          isPrimary: false,
+        );
+
+        // Set primary using all-caps lookup + padded menksoft
+        expect(
+          appDb.setPrimaryDefinition(
+            cyrillic: 'НОМ',
+            menksoft: ' menk_book_2 ',
+          ),
+          true,
+        );
+        var defs = appDb.lookupWord('ном');
+        expect(defs[0]['menksoft'], 'menk_book_2');
+        expect(defs[0]['isDefault'], true);
+
+        // Replace using all-caps lookup + clearExplanation
+        appDb.replaceDefinition(
+          cyrillic: 'НОМ',
+          targetMenksoft: 'menk_book_2',
+          newMenksoft: 'menk_book_2_fixed',
+          explanation: '',
+          clearExplanation: true,
+        );
+        defs = appDb.lookupWord('ном');
+        expect(defs[0]['menksoft'], 'menk_book_2_fixed');
+        expect(defs[0]['explanation'], isNull);
+        // Should not create duplicate uppercase row in words
+        final upperWords = rawDb.select(
+          'SELECT * FROM words WHERE cyrillic = ?',
+          ['НОМ'],
+        );
+        expect(upperWords.isEmpty, true);
+
+        // Delete using all-caps lookup + padded menksoft
+        expect(
+          appDb.deleteDefinition(
+            cyrillic: 'НОМ',
+            menksoft: ' menk_book_2_fixed ',
+          ),
+          true,
+        );
+        defs = appDb.lookupWord('ном');
+        expect(defs.length, 1);
+        expect(defs[0]['menksoft'], 'menk_book_1');
+        expect(defs[0]['isDefault'], true);
+      },
+    );
+
+    test(
+      'approveSuggestion clears explanation when hasExplanation is true and omits auto-generated ECK notes unless customized',
+      () {
+        // 1. ECK import note should be omitted on direct approval
+        appDb.addSuggestion(
+          cyrillic: 'дэвтэр',
+          menksoft: 'menk_notebook',
+          explanation: 'ECK толь (1:1)',
+          submittedBy: 'eck_import',
+        );
+        final eckSug = appDb.getPendingSuggestions().first;
+        expect(
+          appDb.approveSuggestion(eckSug['id'] as int, verifiedBy: 'mod'),
+          true,
+        );
+        var defs = appDb.lookupWord('дэвтэр');
+        expect(defs.length, 1);
+        expect(defs.first['explanation'], isNull);
+
+        // 2. Custom explanation on eck_import should be preserved
+        appDb.addSuggestion(
+          cyrillic: 'үзэг',
+          menksoft: 'menk_pen',
+          explanation: 'бичгийн үзэг',
+          submittedBy: 'eck_import',
+        );
+        final customEckSug = appDb.getPendingSuggestions().first;
+        expect(
+          appDb.approveSuggestion(
+            customEckSug['id'] as int,
+            hasExplanation: true,
+            explanation: 'бичгийн үзэг',
+            verifiedBy: 'mod',
+          ),
+          true,
+        );
+        defs = appDb.lookupWord('үзэг');
+        expect(defs.first['explanation'], 'бичгийн үзэг');
+
+        // 3. Clearing explanation with hasExplanation: true and empty string clears it
+        appDb.addSuggestion(
+          cyrillic: 'ширээ',
+          menksoft: 'menk_table',
+          explanation: 'хуучин тайлбар',
+          submittedBy: 'user1',
+        );
+        final clearSug = appDb.getPendingSuggestions().first;
+        expect(
+          appDb.approveSuggestion(
+            clearSug['id'] as int,
+            hasExplanation: true,
+            explanation: '',
+            verifiedBy: 'mod',
+          ),
+          true,
+        );
+        defs = appDb.lookupWord('ширээ');
+        expect(defs.first['explanation'], isNull);
+
+        // 4. Rejecting non-empty menksoft guard for non-resolve_only
+        appDb.addSuggestion(
+          cyrillic: 'алдаа',
+          menksoft: '',
+          comment: 'тайлбар',
+        );
+        final textSug = appDb.getPendingSuggestions().first;
+        expect(
+          () => appDb.approveSuggestion(
+            textSug['id'] as int,
+            action: 'add_primary',
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test(
+      'Comment-bearing suggestions are protected from startup sweep and auto-resolution',
+      () {
+        appDb.addWordDefinition(cyrillic: 'цаас', menksoft: 'menk_paper');
+        appDb.addSuggestion(
+          cyrillic: 'цаас',
+          menksoft: 'menk_paper',
+          comment: 'Энэ бичлэг буруу байна устгана уу',
+        );
+
+        // Startup sweep should NOT auto-resolve comment-bearing suggestions
+        appDb.initSchema();
+        expect(appDb.getPendingSuggestions().length, 1);
+
+        // Ongoing _autoResolveMatchingSuggestions via addWordDefinition should NOT auto-resolve it
+        appDb.addWordDefinition(
+          cyrillic: 'цаас',
+          menksoft: 'menk_paper',
+          explanation: 'шинэчлэв',
+        );
+        expect(appDb.getPendingSuggestions().length, 1);
+      },
+    );
+
+    test(
+      'Single-row rejection scope, idempotency, raw unknown_logs delete, and Cyrillic rejection history',
+      () {
+        // Two pending suggestions for same Cyrillic word
+        appDb.addSuggestion(
+          cyrillic: 'орчлон',
+          menksoft: 'menk_wrong',
+          submittedBy: 'u1',
+        );
+        appDb.addSuggestion(
+          cyrillic: 'орчлон',
+          menksoft: 'menk_valid',
+          submittedBy: 'u2',
+        );
+        final pending = appDb.getPendingSuggestions();
+        expect(pending.length, 2);
+
+        final id1 = pending[0]['id'] as int;
+        final id2 = pending[1]['id'] as int;
+
+        // Rejecting id1 must preserve id2
+        expect(
+          appDb.rejectSuggestion(
+            id1,
+            reason: 'Кирилл бичгийн алдаатай',
+            reviewedBy: 'mod',
+          ),
+          true,
+        );
+        // Second reject on same id returns false (idempotent)
+        expect(
+          appDb.rejectSuggestion(
+            id1,
+            reason: 'Кирилл бичгийн алдаатай',
+            reviewedBy: 'mod',
+          ),
+          false,
+        );
+        // Approving already rejected suggestion returns false
+        expect(appDb.approveSuggestion(id1, verifiedBy: 'mod'), false);
+
+        final remaining = appDb.getPendingSuggestions();
+        expect(remaining.length, 1);
+        expect(remaining.first['id'], id2);
+
+        // Legacy non-normalized unknown_logs entry should be deleted cleanly
+        rawDb.execute(
+          "INSERT INTO unknown_logs (cyrillic, frequency) VALUES ('ТестҮг', 3)",
+        );
+        expect(appDb.getUnknownWordsCount(minFrequency: 2), 1);
+        expect(
+          appDb.rejectMissingWord(
+            'ТестҮг',
+            reason: 'Кирилл бичгийн алдаатай',
+            reviewedBy: 'mod',
+          ),
+          true,
+        );
+        // Second rejectMissingWord returns false without duplicate rejected_words row
+        expect(
+          appDb.rejectMissingWord(
+            'ТестҮг',
+            reason: 'Кирилл бичгийн алдаатай',
+            reviewedBy: 'mod',
+          ),
+          false,
+        );
+        expect(appDb.getUnknownWordsCount(minFrequency: 1), 0);
+
+        // Cyrillic case-insensitive rejection history lookup
+        final history = appDb.getRejectionHistory('ТЕСТҮГ');
+        expect(history.length, 1);
+        final historyLower = appDb.getRejectionHistory('тестүг');
+        expect(historyLower.length, 1);
+      },
+    );
   });
 }

@@ -29,10 +29,11 @@ void main() {
       expect(CyrillicValidator.isCyrillicWord('х\u006Fх'), false);
     });
 
-    test('Rejects URLs, symbols, emails, and whitespace', () {
+    test('Rejects URLs, symbols, underscores, emails, and whitespace', () {
       expect(CyrillicValidator.isCyrillicWord('https://example.com'), false);
       expect(CyrillicValidator.isCyrillicWord('user@domain.mn'), false);
       expect(CyrillicValidator.isCyrillicWord('#монгол'), false);
+      expect(CyrillicValidator.isCyrillicWord('үл_байгаа_үг'), false);
       expect(CyrillicValidator.isCyrillicWord(''), false);
       expect(CyrillicValidator.isCyrillicWord('   '), false);
       expect(CyrillicValidator.isCyrillicWord(null), false);

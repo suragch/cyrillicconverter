@@ -37,7 +37,17 @@ class DesktopDialogFrame extends StatelessWidget {
         : EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset);
 
     final horizontalPadding = isCompact ? 32.0 : 48.0;
-    final effectiveWidth = math.min(maxWidth, screenWidth - horizontalPadding);
+    final effectiveWidth = math.max(
+      200.0,
+      math.min(maxWidth, screenWidth - horizontalPadding),
+    );
+    final availableHeight = math.max(
+      120.0,
+      mediaQuery.size.height - horizontalPadding - bottomInset,
+    );
+    final effectiveMaxHeight = maxHeight != null
+        ? math.min(maxHeight!, availableHeight)
+        : availableHeight;
 
     return Center(
       child: Material(
@@ -46,9 +56,7 @@ class DesktopDialogFrame extends StatelessWidget {
           width: effectiveWidth,
           constraints: BoxConstraints(
             maxWidth: effectiveWidth,
-            maxHeight:
-                maxHeight ??
-                (mediaQuery.size.height - horizontalPadding - bottomInset),
+            maxHeight: effectiveMaxHeight,
           ),
           margin: effectiveMargin,
           decoration: BoxDecoration(
@@ -124,15 +132,41 @@ class DesktopDialogFrame extends StatelessWidget {
                       top: BorderSide(color: DesktopTheme.border, width: 1),
                     ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: actions!,
-                  ),
+                  child: _buildActionsFooter(),
                 ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildActionsFooter() {
+    final items = actions!;
+    final spacerIndex = items.indexWhere((w) => w is Spacer);
+    if (spacerIndex != -1) {
+      final leading = items.sublist(0, spacerIndex);
+      final trailing = items.sublist(spacerIndex + 1);
+      return Row(
+        children: [
+          ...leading,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: trailing,
+            ),
+          ),
+        ],
+      );
+    }
+    return Wrap(
+      alignment: WrapAlignment.end,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: items,
     );
   }
 }

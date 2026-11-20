@@ -59,7 +59,7 @@ class ConverterScreen extends StatefulWidget {
     }
 
     String getCyrillic(Token token) {
-      return token.original.trim().toLowerCase();
+      return LatinIme.normalizeCyrillic(token.original);
     }
 
     // 1. Record the N-th occurrence of each Cyrillic word in oldTokens and what option value the user picked.
@@ -237,6 +237,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
   // Font zoom level (clamped 18..48)
   double _fontSize = 26.0;
 
+  List<Token> _rawServerTokens = [];
   List<Token> _tokens = [];
   List<TokenSpanInfo> _tokenSpanInfos = [];
   final Map<int, int> _selectedOptionIndices = {}; // tokenIndex -> optionIndex
@@ -358,8 +359,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
           .timeout(const Duration(seconds: 30));
       if (res.statusCode == 200) {
         final mime = isJson ? 'application/json' : 'text/csv';
-        downloadFileFromBytes(res.bodyBytes, filename, mime);
-        _showToast('$filename амжилттай татагдлаа.');
+        final saved = downloadFileFromBytes(res.bodyBytes, filename, mime);
+        if (saved) {
+          _showToast('$filename амжилттай татагдлаа.');
+        } else {
+          _showToast('Файл хадгалахад алдаа гарлаа.', isError: true);
+        }
       } else {
         _showToast('Татахад алдаа: ${res.statusCode}', isError: true);
       }
@@ -392,14 +397,16 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final user =
-            (data['user'] as Map<String, dynamic>?) ??
-            {
-              'id': data['id'],
-              'email': data['email'],
-              'role': data['role'],
-              'isAdmin': data['isAdmin'],
-            };
+        final rawUser = (data['user'] as Map<String, dynamic>?) ?? {};
+        final user = <String, dynamic>{
+          ...rawUser,
+          if (!rawUser.containsKey('id')) 'id': data['id'],
+          if (!rawUser.containsKey('email')) 'email': data['email'],
+          if (!rawUser.containsKey('role')) 'role': data['role'],
+          if (!rawUser.containsKey('isAdmin')) 'isAdmin': data['isAdmin'],
+          if (!rawUser.containsKey('isModerator'))
+            'isModerator': data['isModerator'],
+        };
         final newToken = data['token'] as String? ?? savedToken;
         if (newToken != savedToken) {
           await prefs.setString(_authTokenStorageKey, newToken);
@@ -411,7 +418,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
             _currentUser = user;
           });
         }
-        _fetchModeratorCount();
+        if (_isModerator) {
+          _fetchModeratorCount();
+        }
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         await prefs.remove(_authTokenStorageKey);
         if (mounted) {
@@ -433,7 +442,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   Future<void> _fetchModeratorCount() async {
-    if (!_isLoggedIn) return;
+    if (!_isModerator) {
+      return;
+    }
     try {
       final headers = {
         'Content-Type': 'application/json',
@@ -492,6 +503,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
       _isLoggedIn &&
       (_currentUser?['role'] == 'admin' || _currentUser?['isAdmin'] == true);
 
+  bool get _isModerator =>
+      _isLoggedIn &&
+      (_isAdmin ||
+          _currentUser?['isModerator'] == true ||
+          _currentUser?['role'] == 'moderator');
+
   void _zoomIn() {
     setState(() {
       _fontSize = (_fontSize + 2).clamp(18.0, 48.0);
@@ -538,6 +555,13 @@ class _ConverterScreenState extends State<ConverterScreen> {
     if (_saveContextPreference == null) {
       final chosen = await _openPrivacySettingsDialog(isFirstTime: true);
       if (chosen == null || !mounted) {
+        return;
+      }
+    }
+
+    if (!LocalDictionaryService.instance.isInitialized) {
+      await LocalDictionaryService.instance.initialize();
+      if (!mounted) {
         return;
       }
     }
@@ -592,6 +616,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         if (mounted) {
           final isMobile = MediaQuery.sizeOf(context).width < 600;
           setState(() {
+            _rawServerTokens = rawParsed;
             _tokens = reconciledTokens;
             _selectedOptionIndices
               ..clear()
@@ -622,6 +647,41 @@ class _ConverterScreenState extends State<ConverterScreen> {
     }
   }
 
+  void _reapplyLocalTokens() {
+    if (_rawServerTokens.isEmpty || !mounted) {
+      return;
+    }
+    final recognizedToPurge = <String>[];
+    final reconciledTokens = ConverterScreen.resolveLocalTokens(
+      tokens: _rawServerTokens,
+      localService: LocalDictionaryService.instance,
+      outRecognizedToPurge: recognizedToPurge,
+    );
+    if (recognizedToPurge.isNotEmpty) {
+      unawaited(LocalDictionaryService.instance.purgeWords(recognizedToPurge));
+    }
+    final reconciledSelections = ConverterScreen.reconcileHomonymSelections(
+      oldTokens: _tokens,
+      newTokens: reconciledTokens,
+      oldSelections: _selectedOptionIndices,
+    );
+    setState(() {
+      _tokens = reconciledTokens;
+      _selectedOptionIndices
+        ..clear()
+        ..addAll(reconciledSelections);
+      _syncOutputText();
+    });
+  }
+
+  static String _normalizeSpaceForOutput(String raw) {
+    final normalized = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    if (normalized.contains('\n')) {
+      return normalized.replaceAll(RegExp(r'[^\S\n]+'), '');
+    }
+    return ' ';
+  }
+
   void _syncOutputText() {
     final buffer = StringBuffer();
     final newSpans = <TokenSpanInfo>[];
@@ -631,7 +691,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       final token = _tokens[i];
       String text;
       if (token.type == 'space') {
-        text = ' ';
+        text = token.menksoft ?? _normalizeSpaceForOutput(token.original);
       } else if (token.type == 'delimiter') {
         text =
             token.menksoft ??
@@ -842,16 +902,25 @@ class _ConverterScreenState extends State<ConverterScreen> {
     String? comment,
     bool isPrimary = true,
     String? targetMenksoft,
+    String? originalExplanation,
   }) async {
     final normalized = LatinIme.normalizeCyrillic(cyrillic);
     final cleanMenksoft = menksoft.trim();
-    final isTextOnly = cleanMenksoft.isEmpty;
+    final cleanComment = comment?.trim() ?? '';
+    final isUnchangedTargetReport =
+        targetMenksoft != null &&
+        targetMenksoft.trim().isNotEmpty &&
+        cleanMenksoft == targetMenksoft.trim() &&
+        cleanComment.isNotEmpty &&
+        (explanation?.trim() ?? '') == (originalExplanation?.trim() ?? '');
+    final effectiveMenksoft = isUnchangedTargetReport ? '' : cleanMenksoft;
+    final isTextOnly = effectiveMenksoft.isEmpty;
 
     if (!isTextOnly) {
       // 1. Immediately update persistent local storage
       await LocalDictionaryService.instance.addOrUpdateWord(
         cyrillic: cyrillic,
-        menksoft: cleanMenksoft,
+        menksoft: effectiveMenksoft,
         explanation: explanation,
       );
 
@@ -867,15 +936,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
         setState(() {
           for (var i = 0; i < _tokens.length; i++) {
             if (LatinIme.normalizeCyrillic(_tokens[i].original) == normalized) {
-              final demotedOptions = _tokens[i].options.map((opt) {
-                return TokenOption(
-                  menksoft: opt.menksoft,
-                  explanation: opt.explanation,
-                  isDefault: false,
-                );
-              }).toList();
+              final demotedOptions = _tokens[i].options
+                  .where((opt) => opt.menksoft.trim() != effectiveMenksoft)
+                  .map((opt) {
+                    return TokenOption(
+                      menksoft: opt.menksoft,
+                      explanation: opt.explanation,
+                      isDefault: false,
+                    );
+                  })
+                  .toList();
               final localOption = TokenOption(
-                menksoft: cleanMenksoft,
+                menksoft: effectiveMenksoft,
                 isDefault: true,
                 explanation:
                     explanation ?? 'Хувийн толь (Таны оруулсан хувилбар)',
@@ -891,38 +963,69 @@ class _ConverterScreenState extends State<ConverterScreen> {
           _syncOutputText();
         });
       }
-
-      _showToast(
-        '"$cyrillic" үг хувийн тольд нэмэгдэж, модераторын дараалалд илгээгдлээ.',
-      );
-    } else {
-      _showToast(
-        '"$cyrillic" үгийн алдааны мэдээлэл модераторын дараалалд илгээгдлээ.',
-      );
     }
 
-    // 3. Asynchronously submit to remote server for moderator queue
+    // 3. Submit to remote server for moderator queue
     try {
       final headers = {'Content-Type': 'application/json'};
       if (_isLoggedIn) {
         headers['Authorization'] = 'Bearer $_authToken';
       }
 
-      await http.post(
-        Uri.parse('$_serverUrl/contribute'),
-        headers: headers,
-        body: jsonEncode({
-          'cyrillic': cyrillic,
-          'menksoft': cleanMenksoft,
-          'context': context ?? '',
-          'explanation': explanation ?? '',
-          'comment': comment ?? '',
-          'targetMenksoft': targetMenksoft ?? '',
-        }),
-      );
-      _fetchModeratorCount();
+      final res = await http
+          .post(
+            Uri.parse('$_serverUrl/contribute'),
+            headers: headers,
+            body: jsonEncode({
+              'cyrillic': cyrillic,
+              'menksoft': effectiveMenksoft,
+              'context': context ?? '',
+              'explanation': explanation ?? '',
+              'comment': cleanComment,
+              'targetMenksoft': targetMenksoft ?? '',
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200) {
+        if (!isTextOnly) {
+          _showToast(
+            '"$cyrillic" үг хувийн тольд нэмэгдэж, модераторын дараалалд илгээгдлээ.',
+          );
+        } else {
+          _showToast(
+            '"$cyrillic" үгийн алдааны мэдээлэл модераторын дараалалд илгээгдлээ.',
+          );
+        }
+        if (_isModerator) {
+          _fetchModeratorCount();
+        }
+      } else {
+        if (!isTextOnly) {
+          _showToast(
+            '"$cyrillic" хувийн тольд хадгалагдсан ч сервер рүү илгээхэд алдаа гарлаа (${res.statusCode}).',
+            isError: true,
+          );
+        } else {
+          _showToast(
+            'Алдааны мэдээлэл илгээхэд алдаа гарлаа (${res.statusCode}).',
+            isError: true,
+          );
+        }
+      }
     } catch (e) {
       debugPrint('Background submission error: $e');
+      if (!isTextOnly) {
+        _showToast(
+          '"$cyrillic" хувийн тольд хадгалагдсан ч сервертэй холбогдож чадсангүй.',
+          isError: true,
+        );
+      } else {
+        _showToast(
+          'Сүлжээний алдаа: алдааны мэдээлэл илгээж чадсангүй.',
+          isError: true,
+        );
+      }
     }
 
     if (!isTextOnly) {
@@ -1023,6 +1126,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
               comment: comment,
               isPrimary: isPrimary,
               targetMenksoft: targetMenksoft,
+              originalExplanation: initialExplanation,
             ),
       ),
     );
@@ -1217,9 +1321,14 @@ class _ConverterScreenState extends State<ConverterScreen> {
           0,
           token.options.length - 1,
         );
-        final selectedOption = token.options.isNotEmpty
-            ? token.options[activeIdx]
-            : null;
+        final TokenOption? selectedOption;
+        if (token.isLocal && activeIdx == 0) {
+          selectedOption = token.options.length > 1 ? token.options[1] : null;
+        } else {
+          selectedOption = token.options.isNotEmpty
+              ? token.options[activeIdx]
+              : null;
+        }
         _showFlagErrorDialog(
           token,
           tokenIndex: tokenIndex,
@@ -1369,7 +1478,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       ),
       items: items,
     ).then((selectedIndex) {
-      if (selectedIndex == null) {
+      if (selectedIndex == null || !mounted || tokenIndex >= _tokens.length) {
         return;
       }
       if (selectedIndex == -1) {
@@ -1377,9 +1486,14 @@ class _ConverterScreenState extends State<ConverterScreen> {
           0,
           token.options.length - 1,
         );
-        final selectedOption = token.options.isNotEmpty
-            ? token.options[activeIdx]
-            : null;
+        final TokenOption? selectedOption;
+        if (token.isLocal && activeIdx == 0) {
+          selectedOption = token.options.length > 1 ? token.options[1] : null;
+        } else {
+          selectedOption = token.options.isNotEmpty
+              ? token.options[activeIdx]
+              : null;
+        }
         _showFlagErrorDialog(
           token,
           tokenIndex: tokenIndex,
@@ -1461,6 +1575,9 @@ class _ConverterScreenState extends State<ConverterScreen> {
         ),
       ],
     ).then((action) {
+      if (action == null || !mounted || tokenIndex >= _tokens.length) {
+        return;
+      }
       if (action == 'add_variant') {
         _showAddVariantDialog(token, tokenIndex: tokenIndex);
       } else if (action == 'flag_error') {
@@ -1507,136 +1624,24 @@ class _ConverterScreenState extends State<ConverterScreen> {
   }
 
   void _showLoginDialog() {
-    final emailController = TextEditingController();
-    final passwordController = TextEditingController();
-    bool isLoggingIn = false;
-
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (dialogCtx, setDialogState) {
-          Future<void> doLogin() async {
-            setDialogState(() => isLoggingIn = true);
-            try {
-              final response = await http.post(
-                Uri.parse('$_serverUrl/auth/login'),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({
-                  'email': emailController.text.trim(),
-                  'password': passwordController.text,
-                }),
-              );
-
-              if (response.statusCode == 200) {
-                final data = jsonDecode(response.body) as Map<String, dynamic>;
-                final token = data['token'] as String;
-                final user = data['user'] as Map<String, dynamic>?;
-
-                try {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString(_authTokenStorageKey, token);
-                } catch (_) {}
-
-                if (dialogCtx.mounted) {
-                  Navigator.pop(dialogCtx);
-                }
-                if (mounted) {
-                  setState(() {
-                    _authToken = token;
-                    _currentUser = user;
-                  });
-                  _showToast('Амжилттай нэвтэрлээ');
-                  _fetchModeratorCount();
-                }
-              } else {
-                String message = 'Нэвтрэх амжилтгүй боллоо';
-                try {
-                  final err = jsonDecode(response.body);
-                  if (err['error'] != null) message = err['error'].toString();
-                } catch (_) {}
-                _showToast(message, isError: true);
-              }
-            } catch (e) {
-              _showToast('Нэвтрэх амжилтгүй: $e', isError: true);
-            } finally {
-              if (dialogCtx.mounted) {
-                setDialogState(() => isLoggingIn = false);
-              }
-            }
+      builder: (ctx) => _LoginDialog(
+        serverUrl: _serverUrl,
+        authTokenStorageKey: _authTokenStorageKey,
+        onError: (msg) => _showToast(msg, isError: true),
+        onLoginSuccess: (token, user) {
+          if (!mounted) {
+            return;
           }
-
-          return DesktopDialogFrame(
-            title: 'Системд нэвтрэх',
-            maxWidth: 400,
-            leadingIcon: const Icon(
-              Icons.lock_outline,
-              size: 18,
-              color: DesktopTheme.primary,
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Шүүгчийн эрхээр нэвтэрч үгсийн сангийн саналуудыг хянах, дутуу үг нэмэх боломжтой.',
-                  style: DesktopTheme.bodySecondary,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: emailController,
-                  autofocus: true,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(
-                    labelText: 'Имэйл / Нэвтрэх нэр',
-                    labelStyle: TextStyle(fontSize: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: DesktopTheme.roundedSmall,
-                    ),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passwordController,
-                  obscureText: true,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(
-                    labelText: 'Нууц үг',
-                    labelStyle: TextStyle(fontSize: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: DesktopTheme.roundedSmall,
-                    ),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  onSubmitted: (_) {
-                    if (!isLoggingIn) doLogin();
-                  },
-                ),
-              ],
-            ),
-            actions: [
-              DesktopButton(
-                onPressed: () => Navigator.pop(ctx),
-                label: 'Цуцлах',
-                variant: DesktopButtonVariant.secondary,
-                isDense: true,
-              ),
-              const SizedBox(width: 8),
-              DesktopButton(
-                onPressed: isLoggingIn ? null : doLogin,
-                label: 'Нэвтрэх',
-                variant: DesktopButtonVariant.primary,
-                isLoading: isLoggingIn,
-                isDense: true,
-              ),
-            ],
-          );
+          setState(() {
+            _authToken = token;
+            _currentUser = user;
+          });
+          _showToast('Амжилттай нэвтэрлээ');
+          if (_isModerator) {
+            _fetchModeratorCount();
+          }
         },
       ),
     );
@@ -1647,9 +1652,16 @@ class _ConverterScreenState extends State<ConverterScreen> {
     // Shortcuts handler (Cmd+Enter to convert)
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.enter, meta: true): _convert,
-        const SingleActivator(LogicalKeyboardKey.enter, control: true):
-            _convert,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): () {
+          if (_activeTab == DesktopNavTab.converter) {
+            _convert();
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+          if (_activeTab == DesktopNavTab.converter) {
+            _convert();
+          }
+        },
       },
       child: Focus(
         autofocus: true,
@@ -1661,8 +1673,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
                 DesktopHeader(
                   activeTab: _activeTab,
                   onTabChanged: (tab) {
-                    if (tab == DesktopNavTab.moderator && !_isLoggedIn) {
-                      _showLoginDialog();
+                    if (tab == DesktopNavTab.moderator && !_isModerator) {
+                      if (!_isLoggedIn) {
+                        _showLoginDialog();
+                      } else {
+                        _showToast(
+                          'Танд шүүгчийн эрх байхгүй байна.',
+                          isError: true,
+                        );
+                      }
                       return;
                     }
                     setState(() => _activeTab = tab);
@@ -1670,6 +1689,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   moderatorBadgeCount: _moderatorQueueCount,
                   isRestoringSession: _isRestoringSession,
                   isLoggedIn: _isLoggedIn,
+                  isModerator: _isModerator,
                   currentUser: _currentUser,
                   onLoginPressed: _showLoginDialog,
                   onLogoutPressed: _logout,
@@ -1712,7 +1732,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return _buildConverterWorkspace();
 
       case DesktopNavTab.moderator:
-        if (!_isLoggedIn) {
+        if (!_isModerator) {
           return _buildConverterWorkspace();
         }
         return ModeratorPage(
@@ -1733,10 +1753,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
         return DictionaryBrowseView(
           serverUrl: _serverUrl,
           authToken: _authToken,
+          isModerator: _isModerator,
           moderatorId:
               _currentUser?['id'] as String? ??
               _currentUser?['email'] as String?,
           onDownloadDictionary: () => _downloadPublicDictionary(),
+          onLocalWordsChanged: _reapplyLocalTokens,
         );
     }
   }
@@ -1892,9 +1914,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
                     _inputTextController.clear();
                     _outputController.clear();
                     setState(() {
+                      _rawServerTokens = [];
                       _tokens = [];
                       _tokenSpanInfos = [];
                       _lastConvertedText = null;
+                      _errorMessage = null;
                       _selectedOptionIndices.clear();
                     });
                   },
@@ -1926,9 +1950,6 @@ class _ConverterScreenState extends State<ConverterScreen> {
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
                 ),
-                onChanged: (_) {
-                  setState(() {});
-                },
               ),
             ),
           ),
@@ -2508,6 +2529,164 @@ class _ConverterScreenState extends State<ConverterScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LoginDialog extends StatefulWidget {
+  final String serverUrl;
+  final String authTokenStorageKey;
+  final void Function(String message) onError;
+  final void Function(String token, Map<String, dynamic>? user) onLoginSuccess;
+
+  const _LoginDialog({
+    required this.serverUrl,
+    required this.authTokenStorageKey,
+    required this.onError,
+    required this.onLoginSuccess,
+  });
+
+  @override
+  State<_LoginDialog> createState() => _LoginDialogState();
+}
+
+class _LoginDialogState extends State<_LoginDialog> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isLoggingIn = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _doLogin() async {
+    if (_isLoggingIn) {
+      return;
+    }
+    setState(() => _isLoggingIn = true);
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/auth/login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': _emailController.text.trim(),
+              'password': _passwordController.text,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final token = data['token'] as String;
+        final user = data['user'] as Map<String, dynamic>?;
+
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(widget.authTokenStorageKey, token);
+        } catch (_) {}
+
+        if (mounted) {
+          Navigator.pop(context);
+          widget.onLoginSuccess(token, user);
+        }
+      } else {
+        String message = 'Нэвтрэх амжилтгүй боллоо';
+        try {
+          final err = jsonDecode(response.body);
+          if (err['error'] != null) {
+            message = err['error'].toString();
+          }
+        } catch (_) {}
+        widget.onError(message);
+      }
+    } catch (e) {
+      widget.onError('Нэвтрэх амжилтгүй: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoggingIn = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopDialogFrame(
+      title: 'Системд нэвтрэх',
+      maxWidth: 400,
+      leadingIcon: const Icon(
+        Icons.lock_outline,
+        size: 18,
+        color: DesktopTheme.primary,
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Шүүгчийн эрхээр нэвтэрч үгсийн сангийн саналуудыг хянах, дутуу үг нэмэх боломжтой.',
+            style: DesktopTheme.bodySecondary,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emailController,
+            autofocus: true,
+            style: const TextStyle(fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: 'Имэйл / Нэвтрэх нэр',
+              labelStyle: TextStyle(fontSize: 12),
+              border: OutlineInputBorder(
+                borderRadius: DesktopTheme.roundedSmall,
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            style: const TextStyle(fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: 'Нууц үг',
+              labelStyle: TextStyle(fontSize: 12),
+              border: OutlineInputBorder(
+                borderRadius: DesktopTheme.roundedSmall,
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+            ),
+            onSubmitted: (_) {
+              if (!_isLoggingIn) {
+                _doLogin();
+              }
+            },
+          ),
+        ],
+      ),
+      actions: [
+        DesktopButton(
+          onPressed: () => Navigator.pop(context),
+          label: 'Цуцлах',
+          variant: DesktopButtonVariant.secondary,
+          isDense: true,
+        ),
+        const SizedBox(width: 8),
+        DesktopButton(
+          onPressed: _isLoggingIn ? null : _doLogin,
+          label: 'Нэвтрэх',
+          variant: DesktopButtonVariant.primary,
+          isLoading: _isLoggingIn,
+          isDense: true,
+        ),
+      ],
     );
   }
 }

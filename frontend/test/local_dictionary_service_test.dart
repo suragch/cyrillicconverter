@@ -8,8 +8,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
+    LocalDictionaryService.instance.preferencesProviderForTest = null;
     SharedPreferences.setMockInitialValues({});
     await LocalDictionaryService.instance.clearAll();
+  });
+
+  tearDown(() {
+    LocalDictionaryService.instance.preferencesProviderForTest = null;
   });
 
   group('LocalWordEntry Model', () {
@@ -177,5 +182,64 @@ void main() {
         expect(words.last.cyrillic, 'эхний');
       },
     );
+
+    test(
+      'ALL-CAPS lookup falls back to lowercase without shadowing abbreviations',
+      () async {
+        await LocalDictionaryService.instance.initialize();
+        await LocalDictionaryService.instance.addOrUpdateWord(
+          cyrillic: 'ном',
+          menksoft: 'ᠨᠣᠮ',
+        );
+        await LocalDictionaryService.instance.addOrUpdateWord(
+          cyrillic: 'ан',
+          menksoft: 'ан_ан',
+        );
+        await LocalDictionaryService.instance.addOrUpdateWord(
+          cyrillic: 'АН',
+          menksoft: 'АН_нам',
+        );
+
+        expect(LocalDictionaryService.instance.hasWord('НОМ'), isTrue);
+        expect(LocalDictionaryService.instance.getWord('НОМ')?.menksoft, 'ᠨᠣᠮ');
+        expect(
+          LocalDictionaryService.instance.getWord('АН')?.menksoft,
+          'АН_нам',
+        );
+        expect(
+          LocalDictionaryService.instance.getWord('ан')?.menksoft,
+          'ан_ан',
+        );
+      },
+    );
+
+    test('Recovers _persistLock after a storage write failure', () async {
+      await LocalDictionaryService.instance.initialize();
+
+      var shouldFail = true;
+      LocalDictionaryService.instance.preferencesProviderForTest = () async {
+        if (shouldFail) {
+          throw Exception('Simulated storage failure');
+        }
+        return SharedPreferences.getInstance();
+      };
+
+      final firstResult = await LocalDictionaryService.instance.addOrUpdateWord(
+        cyrillic: 'алдаа',
+        menksoft: 'menk_err',
+      );
+      expect(firstResult, isFalse);
+
+      // Subsequent write must still run and succeed once storage recovers
+      shouldFail = false;
+      final secondResult = await LocalDictionaryService.instance
+          .addOrUpdateWord(cyrillic: 'амжилт', menksoft: 'menk_ok');
+      expect(secondResult, isTrue);
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(LocalDictionaryService.storageKey);
+      expect(raw, isNotNull);
+      expect(raw!, contains('амжилт'));
+    });
   });
 }

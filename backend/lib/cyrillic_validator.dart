@@ -1,7 +1,7 @@
 class CyrillicValidator {
-  // Matches pure Cyrillic text, optionally with hyphens, apostrophes, or underscores between letters
+  // Matches pure Cyrillic text, optionally with hyphens or apostrophes between letters
   static final RegExp _cyrillicWordRegex = RegExp(
-    r"^[а-яёөүА-ЯЁӨҮ]+(?:[-'_][а-яёөүА-ЯЁӨҮ]+)*$",
+    r"^[а-яёөүА-ЯЁӨҮ]+(?:[-'][а-яёөүА-ЯЁӨҮ]+)*$",
     caseSensitive: false,
   );
 

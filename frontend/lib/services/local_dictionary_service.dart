@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,9 @@ class LocalDictionaryService extends ChangeNotifier {
   List<LocalWordEntry> _sortedWords = <LocalWordEntry>[];
   Future<void> _persistLock = Future<void>.value();
   bool _isInitialized = false;
+
+  @visibleForTesting
+  Future<SharedPreferences> Function()? preferencesProviderForTest;
 
   bool get isInitialized => _isInitialized;
 
@@ -60,14 +64,26 @@ class LocalDictionaryService extends ChangeNotifier {
     }
   }
 
+  LocalWordEntry? _lookupEntry(String cyrillic) {
+    final norm = LatinIme.normalizeCyrillic(cyrillic);
+    final exact = _entries[norm];
+    if (exact != null) {
+      return exact;
+    }
+    if (LatinIme.isAbbreviation(cyrillic)) {
+      return _entries[cyrillic.trim().toLowerCase()];
+    }
+    return null;
+  }
+
   /// Synchronously checks if a word exists in the local dictionary.
   bool hasWord(String cyrillic) {
-    return _entries.containsKey(LatinIme.normalizeCyrillic(cyrillic));
+    return _lookupEntry(cyrillic) != null;
   }
 
   /// Synchronously retrieves a word entry by its Cyrillic root.
   LocalWordEntry? getWord(String cyrillic) {
-    return _entries[LatinIme.normalizeCyrillic(cyrillic)];
+    return _lookupEntry(cyrillic);
   }
 
   /// Upserts a local word definition, updates memory, and enqueues sequential persistence.
@@ -144,24 +160,23 @@ class LocalDictionaryService extends ChangeNotifier {
   }
 
   /// Serializes disk writes using a sequential Future chain to eliminate race conditions.
+  /// Errors do not poison [_persistLock], allowing subsequent writes to proceed.
   Future<bool> _persist() {
+    final completer = Completer<bool>();
     _persistLock = _persistLock.then((_) async {
       try {
         final raw = jsonEncode(_entries.values.map((e) => e.toJson()).toList());
-        final prefs = await SharedPreferences.getInstance();
+        final prefs =
+            await (preferencesProviderForTest?.call() ??
+                SharedPreferences.getInstance());
         await prefs.setString(storageKey, raw);
+        completer.complete(true);
       } catch (e) {
         debugPrint('LocalDictionaryService persist error: $e');
-        rethrow;
+        completer.complete(false);
       }
     });
 
-    return _persistLock.then(
-      (_) => true,
-      onError: (Object error) {
-        debugPrint('LocalDictionaryService persist failed: $error');
-        return false;
-      },
-    );
+    return completer.future;
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:pocketbase/pocketbase.dart';
 import 'package:shelf/shelf.dart';
@@ -53,6 +54,14 @@ final _router = Router()
   ..get('/admin/db/export-json', requireAdmin(_adminDbExportJsonHandler))
   ..post('/admin/db/seed', requireAdmin(_adminDbSeedHandler))
   ..post('/admin/moderators', requireAdmin(_adminAddModeratorHandler));
+
+Response _jsonResponse(int statusCode, Map<String, dynamic> body) {
+  return Response(
+    statusCode,
+    body: jsonEncode(body),
+    headers: {'content-type': 'application/json'},
+  );
+}
 
 Response _healthHandler(Request request) {
   try {
@@ -118,6 +127,7 @@ Future<Response> _loginHandler(Request request) async {
     final rawRole = (user.data['role'] as String?)?.trim() ?? '';
     final role = rawRole.isNotEmpty ? rawRole : (isSuperuser ? 'admin' : '');
     final isAdmin = isSuperuser || role == 'admin';
+    final isModerator = isAdmin || role == 'moderator';
 
     return Response.ok(
       jsonEncode({
@@ -128,6 +138,7 @@ Future<Response> _loginHandler(Request request) async {
               ? user.getStringValue('email')
               : email,
           'role': role,
+          'isModerator': isModerator,
           'isAdmin': isAdmin,
         },
       }),
@@ -168,7 +179,13 @@ Response _authMeHandler(Request request) {
       'isModerator': auth.isModerator,
       'isAdmin': auth.isAdmin,
       if (auth.token != null) 'token': auth.token,
-      'user': {'id': id, 'email': email, 'role': role, 'isAdmin': auth.isAdmin},
+      'user': {
+        'id': id,
+        'email': email,
+        'role': role,
+        'isModerator': auth.isModerator,
+        'isAdmin': auth.isAdmin,
+      },
     }),
     headers: {'content-type': 'application/json'},
   );
@@ -213,16 +230,48 @@ const Map<String, String> _punctuationToMenksoft = {
   '!?': '\uE24F',
 };
 
-String _convertDelimiter(String text) {
-  if (_punctuationToMenksoft.containsKey(text)) {
-    return _punctuationToMenksoft[text]!;
-  }
+({String text, bool isDoubleQuoteOpen}) _convertDelimiter(
+  String text, {
+  bool isDoubleQuoteOpen = false,
+}) {
+  var quoteOpen = isDoubleQuoteOpen;
   final buffer = StringBuffer();
-  for (var i = 0; i < text.length; i++) {
+  var i = 0;
+
+  while (i < text.length) {
+    if (i + 3 <= text.length && text.startsWith('...', i)) {
+      buffer.write(_punctuationToMenksoft['...']);
+      i += 3;
+      continue;
+    }
+    if (i + 2 <= text.length) {
+      final two = text.substring(i, i + 2);
+      if (two == '?!' || two == '!?') {
+        buffer.write(_punctuationToMenksoft[two]);
+        i += 2;
+        continue;
+      }
+    }
+
     final ch = text[i];
-    buffer.write(_punctuationToMenksoft[ch] ?? ch);
+    if (ch == '"') {
+      buffer.write(quoteOpen ? '\uE25A' : '\uE259');
+      quoteOpen = !quoteOpen;
+    } else {
+      buffer.write(_punctuationToMenksoft[ch] ?? ch);
+    }
+    i++;
   }
-  return buffer.toString();
+
+  return (text: buffer.toString(), isDoubleQuoteOpen: quoteOpen);
+}
+
+String _convertSpace(String raw) {
+  final normalized = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  if (normalized.contains('\n')) {
+    return normalized.replaceAll(RegExp(r'[^\S\n]+'), '');
+  }
+  return ' ';
 }
 
 final _singleUppercaseCyrillicRegex = RegExp(r'^[А-ЯЁӨҮ]$');
@@ -290,15 +339,26 @@ void _scheduleUnknownWordFlush() {
   }
   _isFlushingUnknownWords = true;
   scheduleMicrotask(() {
-    while (_unknownWordQueue.isNotEmpty) {
-      final item = _unknownWordQueue.removeAt(0);
-      try {
-        _db.logUnknownWord(item.text, context: item.context);
-      } catch (e) {
-        print('Warning: Failed to log unknown word: $e');
+    try {
+      final batch = List<({String text, String? context})>.of(
+        _unknownWordQueue,
+      );
+      _unknownWordQueue.clear();
+      if (batch.isNotEmpty) {
+        _db.runInTransaction(() {
+          for (final item in batch) {
+            _db.logUnknownWord(item.text, context: item.context);
+          }
+        });
+      }
+    } catch (e) {
+      print('Warning: Failed to log unknown word: $e');
+    } finally {
+      _isFlushingUnknownWords = false;
+      if (_unknownWordQueue.isNotEmpty) {
+        _scheduleUnknownWordFlush();
       }
     }
-    _isFlushingUnknownWords = false;
   });
 }
 
@@ -318,19 +378,24 @@ Future<Response> _convertHandler(Request request) async {
     final rawTokens = Tokenizer.tokenize(text);
     final List<Map<String, dynamic>> resultTokens = [];
     final Set<String> loggedInThisRequest = {};
+    var isDoubleQuoteOpen = false;
 
     for (var i = 0; i < rawTokens.length; i++) {
       final token = rawTokens[i];
 
       if (token.type == TokenType.space) {
+        final spaceMenksoft = _convertSpace(token.text);
+        if (spaceMenksoft.contains('\n')) {
+          isDoubleQuoteOpen = false;
+        }
         resultTokens.add({
           'type': 'space',
           'original': token.text,
-          'menksoft': ' ',
+          'menksoft': spaceMenksoft,
           'options': [],
         });
       } else if (token.type == TokenType.delimiter) {
-        String menksoft = _convertDelimiter(token.text);
+        var isAbbrevDot = false;
         if (token.text == '.') {
           // Check if this period is part of a name abbreviation without whitespace:
           // e.g. "Д.Сүхбаатар" or "Б.Д.Сүхбаатар"
@@ -341,9 +406,20 @@ Future<Response> _convertHandler(Request request) async {
                 _singleUppercaseCyrillicRegex.hasMatch(prev.text) &&
                 next.type == TokenType.word &&
                 _capitalizedCyrillicRegex.hasMatch(next.text)) {
-              menksoft = '\uE243'; // Menksoft vertical middle dot
+              isAbbrevDot = true;
             }
           }
+        }
+        final String menksoft;
+        if (isAbbrevDot) {
+          menksoft = '\uE243'; // Menksoft vertical middle dot
+        } else {
+          final converted = _convertDelimiter(
+            token.text,
+            isDoubleQuoteOpen: isDoubleQuoteOpen,
+          );
+          menksoft = converted.text;
+          isDoubleQuoteOpen = converted.isDoubleQuoteOpen;
         }
         resultTokens.add({
           'type': 'delimiter',
@@ -376,7 +452,7 @@ Future<Response> _convertHandler(Request request) async {
 
           // Only accept and log strictly Cyrillic text
           if (CyrillicValidator.isCyrillicWord(token.text)) {
-            final normalized = token.text.trim().toLowerCase();
+            final normalized = CyrillicValidator.normalizeWord(token.text);
             // 1. Ensure a word repeated multiple times in one text only counts once per request.
             // 2. Ensure repeated clicks within 30 minutes from the same session don't increment frequency.
             if (loggedInThisRequest.add(normalized) &&
@@ -420,36 +496,26 @@ Future<Response> _contributeHandler(Request request) async {
     final auth = request.context['auth'] as AuthContext?;
 
     if (cyrillic == null || cyrillic.trim().isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'cyrillic is required'}),
-      );
+      return _jsonResponse(400, {'error': 'cyrillic is required'});
     }
     if (!CyrillicValidator.isCyrillicWord(cyrillic)) {
-      return Response.badRequest(
-        body: jsonEncode({
-          'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)',
-        }),
-        headers: {'content-type': 'application/json'},
-      );
+      return _jsonResponse(400, {
+        'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)',
+      });
     }
 
     final cleanMenksoft = menksoft?.trim() ?? '';
     final cleanComment = comment?.trim() ?? '';
 
     if (cleanComment.length > 500) {
-      return Response.badRequest(
-        body: jsonEncode({
-          'error':
-              'Тайлбар 500 тэмдэгтээс хэтрэхгүй байх ёстой (Comment must not exceed 500 characters)',
-        }),
-        headers: {'content-type': 'application/json'},
-      );
+      return _jsonResponse(400, {
+        'error':
+            'Тайлбар 500 тэмдэгтээс хэтрэхгүй байх ёстой (Comment must not exceed 500 characters)',
+      });
     }
 
     if (cleanMenksoft.isEmpty && cleanComment.isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'menksoft or comment is required'}),
-      );
+      return _jsonResponse(400, {'error': 'menksoft or comment is required'});
     }
 
     _db.addSuggestion(
@@ -471,9 +537,7 @@ Future<Response> _contributeHandler(Request request) async {
     );
   } catch (e) {
     print('Error in /contribute: $e');
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -604,8 +668,9 @@ Future<Response> _adminMissingHandler(Request request) async {
     limit: limit,
     minFrequency: minFrequency,
   );
+  final total = _db.getUnknownWordsCount(minFrequency: minFrequency);
   return Response.ok(
-    jsonEncode({'missing': results}),
+    jsonEncode({'missing': results, 'total': total}),
     headers: {'content-type': 'application/json'},
   );
 }
@@ -673,8 +738,17 @@ Future<Response> _adminApproveHandler(Request request) async {
     final cyrillic = json['cyrillic'] as String?;
     final menksoft = json['menksoft'] as String?;
     final explanation = json['explanation'] as String?;
+    final hasExplanation = json.containsKey('explanation');
     final action = (json['action'] as String?)?.trim() ?? 'add_primary';
     final targetMenksoft = json['targetMenksoft'] as String?;
+
+    if (cyrillic != null &&
+        cyrillic.trim().isNotEmpty &&
+        !CyrillicValidator.isCyrillicWord(cyrillic)) {
+      return _jsonResponse(400, {
+        'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)',
+      });
+    }
 
     final auth = request.context['auth'] as AuthContext?;
     final verifiedBy =
@@ -683,23 +757,30 @@ Future<Response> _adminApproveHandler(Request request) async {
         json['moderatorId'] as String? ??
         'moderator';
 
-    _db.approveSuggestion(
+    final approved = _db.approveSuggestion(
       id,
       verifiedBy: verifiedBy,
       cyrillic: cyrillic,
       menksoft: menksoft,
       explanation: explanation,
+      hasExplanation: hasExplanation,
       action: action,
       targetMenksoft: targetMenksoft,
     );
+    if (!approved) {
+      return _jsonResponse(409, {
+        'success': false,
+        'error': 'Suggestion not found or already reviewed',
+      });
+    }
     return Response.ok(
       jsonEncode({'success': true, 'verifiedBy': verifiedBy}),
       headers: {'content-type': 'application/json'},
     );
+  } on ArgumentError catch (e) {
+    return _jsonResponse(400, {'error': e.message.toString()});
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -717,15 +798,23 @@ Future<Response> _adminRejectHandler(Request request) async {
         json['moderatorId'] as String? ??
         'moderator';
 
-    _db.rejectSuggestion(id, reason: reason, reviewedBy: reviewedBy);
+    final rejected = _db.rejectSuggestion(
+      id,
+      reason: reason,
+      reviewedBy: reviewedBy,
+    );
+    if (!rejected) {
+      return _jsonResponse(409, {
+        'success': false,
+        'error': 'Suggestion not found or already reviewed',
+      });
+    }
     return Response.ok(
       jsonEncode({'success': true, 'reviewedBy': reviewedBy}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -737,9 +826,7 @@ Future<Response> _adminRejectMissingHandler(Request request) async {
     final reason = (json['reason'] as String?)?.trim() ?? 'rejected';
 
     if (cyrillic.isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'Cyrillic word is required'}),
-      );
+      return _jsonResponse(400, {'error': 'Cyrillic word is required'});
     }
 
     final auth = request.context['auth'] as AuthContext?;
@@ -749,16 +836,24 @@ Future<Response> _adminRejectMissingHandler(Request request) async {
         json['moderatorId'] as String? ??
         'moderator';
 
-    _db.rejectMissingWord(cyrillic, reason: reason, reviewedBy: reviewedBy);
+    final rejected = _db.rejectMissingWord(
+      cyrillic,
+      reason: reason,
+      reviewedBy: reviewedBy,
+    );
+    if (!rejected) {
+      return _jsonResponse(404, {
+        'success': false,
+        'error': 'Missing word not found in queue',
+      });
+    }
 
     return Response.ok(
       jsonEncode({'success': true, 'reviewedBy': reviewedBy}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -766,12 +861,24 @@ Future<Response> _adminAddWordHandler(Request request) async {
   final content = await request.readAsString();
   try {
     final json = jsonDecode(content) as Map<String, dynamic>;
-    final cyrillic = json['cyrillic'] as String;
-    final menksoft = json['menksoft'] as String;
+    final cyrillic = (json['cyrillic'] as String?)?.trim() ?? '';
+    final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
     final explanation = json['explanation'] as String?;
     final isPrimary = json['isPrimary'] as bool? ?? true;
     final auth = request.context['auth'] as AuthContext?;
 
+    if (cyrillic.isEmpty || menksoft.isEmpty) {
+      return _jsonResponse(400, {
+        'error': 'cyrillic and menksoft are required',
+      });
+    }
+    if (!CyrillicValidator.isCyrillicWord(cyrillic)) {
+      return _jsonResponse(400, {
+        'error': 'Зөвхөн кирилл үг оруулна уу (Only Cyrillic text accepted)',
+      });
+    }
+
+    final normalized = CyrillicValidator.normalizeWord(cyrillic);
     final wordId = _db.addWordDefinition(
       cyrillic: cyrillic,
       menksoft: menksoft,
@@ -781,19 +888,18 @@ Future<Response> _adminAddWordHandler(Request request) async {
     );
 
     // Also remove from unknown_logs if it was there
-    _db.db.execute(
-      'DELETE FROM unknown_logs WHERE cyrillic = ? OR cyrillic = ?',
-      [cyrillic.trim(), cyrillic.trim().toLowerCase()],
-    );
+    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic IN (?, ?, ?)', [
+      cyrillic,
+      normalized,
+      normalized.toLowerCase(),
+    ]);
 
     return Response.ok(
       jsonEncode({'success': true, 'wordId': wordId}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -805,12 +911,15 @@ Future<Response> _adminUpdateDefinitionHandler(Request request) async {
     final targetMenksoft = (json['targetMenksoft'] as String?)?.trim() ?? '';
     final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
     final explanation = json['explanation'] as String?;
+    final hasExplanation = json.containsKey('explanation');
+    final clearExplanation =
+        hasExplanation && (explanation == null || explanation.trim().isEmpty);
     final isPrimary = json['isPrimary'] as bool?;
 
     if (cyrillic.isEmpty || menksoft.isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
-      );
+      return _jsonResponse(400, {
+        'error': 'cyrillic and menksoft are required',
+      });
     }
 
     final auth = request.context['auth'] as AuthContext?;
@@ -822,6 +931,7 @@ Future<Response> _adminUpdateDefinitionHandler(Request request) async {
       targetMenksoft: targetMenksoft,
       newMenksoft: menksoft,
       explanation: explanation,
+      clearExplanation: clearExplanation,
       isPrimary: isPrimary,
       verifiedBy: verifiedBy,
     );
@@ -831,9 +941,7 @@ Future<Response> _adminUpdateDefinitionHandler(Request request) async {
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -845,23 +953,28 @@ Future<Response> _adminDeleteDefinitionHandler(Request request) async {
     final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
 
     if (cyrillic.isEmpty || menksoft.isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
-      );
+      return _jsonResponse(400, {
+        'error': 'cyrillic and menksoft are required',
+      });
     }
 
     final deleted = _db.deleteDefinition(
       cyrillic: cyrillic,
       menksoft: menksoft,
     );
+    if (!deleted) {
+      return _jsonResponse(404, {
+        'success': false,
+        'deleted': false,
+        'error': 'Definition not found',
+      });
+    }
     return Response.ok(
-      jsonEncode({'success': true, 'deleted': deleted}),
+      jsonEncode({'success': true, 'deleted': true}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -873,23 +986,28 @@ Future<Response> _adminSetPrimaryDefinitionHandler(Request request) async {
     final menksoft = (json['menksoft'] as String?)?.trim() ?? '';
 
     if (cyrillic.isEmpty || menksoft.isEmpty) {
-      return Response.badRequest(
-        body: jsonEncode({'error': 'cyrillic and menksoft are required'}),
-      );
+      return _jsonResponse(400, {
+        'error': 'cyrillic and menksoft are required',
+      });
     }
 
     final updated = _db.setPrimaryDefinition(
       cyrillic: cyrillic,
       menksoft: menksoft,
     );
+    if (!updated) {
+      return _jsonResponse(404, {
+        'success': false,
+        'updated': false,
+        'error': 'Definition not found',
+      });
+    }
     return Response.ok(
-      jsonEncode({'success': true, 'updated': updated}),
+      jsonEncode({'success': true, 'updated': true}),
       headers: {'content-type': 'application/json'},
     );
   } catch (e) {
-    return Response.badRequest(
-      body: jsonEncode({'error': 'Invalid request: $e'}),
-    );
+    return _jsonResponse(400, {'error': 'Invalid request: $e'});
   }
 }
 
@@ -958,6 +1076,41 @@ Middleware payloadLimitMiddleware({int maxBytes = 512 * 1024}) {
           headers: {'content-type': 'application/json'},
         );
       }
+
+      if (request.contentLength == null) {
+        final builder = BytesBuilder(copy: false);
+        var totalBytes = 0;
+        var tooLarge = false;
+        final hardAbortBytes = maxBytes * 8;
+        await for (final chunk in request.read()) {
+          totalBytes += chunk.length;
+          if (!tooLarge && totalBytes > maxBytes) {
+            tooLarge = true;
+            builder.clear();
+          }
+          if (tooLarge) {
+            if (totalBytes > hardAbortBytes) {
+              break;
+            }
+            continue;
+          }
+          builder.add(chunk);
+        }
+        if (tooLarge) {
+          return Response(
+            413,
+            body: jsonEncode({
+              'error': 'Payload exceeds maximum limit of ${maxBytes ~/ 1024}KB',
+            }),
+            headers: {
+              'content-type': 'application/json',
+              'connection': 'close',
+            },
+          );
+        }
+        return handler(request.change(body: builder.takeBytes()));
+      }
+
       return handler(request);
     };
   };

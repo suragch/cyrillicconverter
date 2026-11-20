@@ -59,6 +59,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   late final TextEditingController _commentController;
   late final TextEditingController _contextController;
   late final FocusNode _latinFocusNode;
+  late final FocusNode _commentFocusNode;
+  late final FocusNode _contextFocusNode;
   String _previewMenksoft = '';
   bool _isSubmitting = false;
   late bool _showKeyboard;
@@ -82,6 +84,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
 
     _latinFocusNode = FocusNode();
     _latinFocusNode.addListener(_onLatinFocusChanged);
+    _commentFocusNode = FocusNode();
+    _contextFocusNode = FocusNode();
 
     _latinController.addListener(_onLatinChanged);
     _onLatinChanged();
@@ -95,11 +99,13 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     final text = _latinController.text;
     if (LatinIme.containsMongolianScript(text)) {
       final converted = LatinIme.convertToLatin(text);
-      _latinController.value = TextEditingValue(
-        text: converted,
-        selection: TextSelection.collapsed(offset: converted.length),
-      );
-      return;
+      if (converted != text) {
+        _latinController.value = TextEditingValue(
+          text: converted,
+          selection: TextSelection.collapsed(offset: converted.length),
+        );
+        return;
+      }
     }
     setState(() {
       _previewMenksoft = LatinIme.latinToMenksoft(text);
@@ -128,6 +134,8 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     _contextController.dispose();
     _latinFocusNode.removeListener(_onLatinFocusChanged);
     _latinFocusNode.dispose();
+    _commentFocusNode.dispose();
+    _contextFocusNode.dispose();
     super.dispose();
   }
 
@@ -137,12 +145,28 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
     }
     final cyrillic = _cyrillicController.text.trim();
     if (cyrillic.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Кирилл үг хоосон байна'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
     final commentText = _commentController.text.trim();
     final hasComment = commentText.isNotEmpty;
-    if (_previewMenksoft.isEmpty &&
+    if (_previewMenksoft.trim().isEmpty &&
         !(widget.allowEmptyMenksoftWhenCommentProvided && hasComment)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.allowEmptyMenksoftWhenCommentProvided
+                ? 'Монгол бичвэр эсвэл модераторт илгээх тайлбар оруулна уу'
+                : 'Латин галиг / Монгол бичвэр хоосон байна',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
@@ -242,18 +266,20 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
   Widget build(BuildContext context) {
     final isCyrillicFixed = widget.initialCyrillic != null;
 
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.enter): () {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+          if (_commentFocusNode.hasFocus || _contextFocusNode.hasFocus) {
+            return KeyEventResult.ignored;
+          }
           if (!_isSubmitting) {
             _submit();
           }
-        },
-        const SingleActivator(LogicalKeyboardKey.numpadEnter): () {
-          if (!_isSubmitting) {
-            _submit();
-          }
-        },
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
       },
       child: DesktopDialogFrame(
         title: widget.title,
@@ -491,6 +517,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: _commentController,
+                        focusNode: _commentFocusNode,
                         style: const TextStyle(fontSize: 13),
                         maxLength: 500,
                         maxLines: 2,
@@ -538,6 +565,7 @@ class _AddEditWordDialogState extends State<AddEditWordDialog> {
                       if (!_isContextDeleted) ...[
                         TextField(
                           controller: _contextController,
+                          focusNode: _contextFocusNode,
                           style: const TextStyle(fontSize: 12),
                           maxLines: 2,
                           decoration: InputDecoration(

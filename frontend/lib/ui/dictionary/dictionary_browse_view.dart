@@ -14,15 +14,19 @@ import '../dialogs/add_edit_word_dialog.dart';
 class DictionaryBrowseView extends StatefulWidget {
   final String serverUrl;
   final String? authToken;
+  final bool isModerator;
   final String? moderatorId;
   final VoidCallback? onDownloadDictionary;
+  final VoidCallback? onLocalWordsChanged;
 
   const DictionaryBrowseView({
     super.key,
     required this.serverUrl,
     this.authToken,
+    this.isModerator = false,
     this.moderatorId,
     this.onDownloadDictionary,
+    this.onLocalWordsChanged,
   });
 
   @override
@@ -35,6 +39,8 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
   final TextEditingController _localSearchController = TextEditingController();
   String _localSearchQuery = '';
   bool _isSearching = false;
+  bool _isActionInProgress = false;
+  int _searchRequestId = 0;
   String? _errorMessage;
   String? _lastSearchedWord;
   Map<String, dynamic>? _searchResult;
@@ -46,8 +52,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
     super.dispose();
   }
 
-  bool get _isModerator =>
-      widget.authToken != null && widget.authToken!.isNotEmpty;
+  bool get _isModerator => widget.isModerator;
 
   Map<String, String> get _headers {
     final headers = {'Content-Type': 'application/json'};
@@ -59,7 +64,10 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
   Future<void> _searchWord(String query) async {
     final clean = query.trim();
-    if (clean.isEmpty) return;
+    if (clean.isEmpty) {
+      return;
+    }
+    final reqId = ++_searchRequestId;
 
     setState(() {
       _isSearching = true;
@@ -78,6 +86,9 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
           )
           .timeout(const Duration(seconds: 6));
 
+      if (!mounted || reqId != _searchRequestId) {
+        return;
+      }
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         setState(() {
@@ -89,13 +100,18 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
         });
       }
     } catch (e) {
+      if (!mounted || reqId != _searchRequestId) {
+        return;
+      }
       setState(() {
         _errorMessage = 'Сервертэй холбогдож чадсангүй: $e';
       });
     } finally {
-      setState(() {
-        _isSearching = false;
-      });
+      if (mounted && reqId == _searchRequestId) {
+        setState(() {
+          _isSearching = false;
+        });
+      }
     }
   }
 
@@ -118,20 +134,24 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               String? comment,
               bool isPrimary = true,
             }) async {
-              final res = await http.post(
-                Uri.parse('${widget.serverUrl}/admin/words'),
-                headers: _headers,
-                body: jsonEncode({
-                  'cyrillic': cyrillic,
-                  'menksoft': menksoft,
-                  'explanation': explanation,
-                  'isPrimary': isPrimary,
-                  'moderatorId': widget.moderatorId,
-                }),
-              );
+              final res = await http
+                  .post(
+                    Uri.parse('${widget.serverUrl}/admin/words'),
+                    headers: _headers,
+                    body: jsonEncode({
+                      'cyrillic': cyrillic,
+                      'menksoft': menksoft,
+                      'explanation': explanation,
+                      'isPrimary': isPrimary,
+                      'moderatorId': widget.moderatorId,
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 15));
 
               if (res.statusCode == 200) {
-                _searchWord(cyrillic);
+                if (mounted) {
+                  _searchWord(cyrillic);
+                }
               } else {
                 throw Exception(res.body);
               }
@@ -157,17 +177,19 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               String? comment,
               bool isPrimary = true,
             }) async {
-              final res = await http.post(
-                Uri.parse('${widget.serverUrl}/contribute'),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({
-                  'cyrillic': cyrillic,
-                  'menksoft': menksoft,
-                  'context': context ?? '',
-                  'explanation': explanation ?? '',
-                  'comment': comment ?? '',
-                }),
-              );
+              final res = await http
+                  .post(
+                    Uri.parse('${widget.serverUrl}/contribute'),
+                    headers: _headers,
+                    body: jsonEncode({
+                      'cyrillic': cyrillic,
+                      'menksoft': menksoft,
+                      'context': context ?? '',
+                      'explanation': explanation ?? '',
+                      'comment': comment ?? '',
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 15));
 
               if (res.statusCode == 200) {
                 if (mounted) {
@@ -215,18 +237,31 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               String? comment,
               bool isPrimary = true,
             }) async {
-              final res = await http.post(
-                Uri.parse('${widget.serverUrl}/contribute'),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({
-                  'cyrillic': cyrillic,
-                  'menksoft': menksoft,
-                  'context': context ?? '',
-                  'explanation': explanation ?? '',
-                  'comment': comment ?? '',
-                  'targetMenksoft': def['menksoft'],
-                }),
-              );
+              final isUnchangedMenksoft =
+                  menksoft.trim() == (def['menksoft'] as String? ?? '').trim();
+              final isUnchangedExpl =
+                  (explanation?.trim() ?? '') ==
+                  ((def['explanation'] as String?)?.trim() ?? '');
+              final hasComment = comment != null && comment.trim().isNotEmpty;
+              final effectiveMenksoft =
+                  (isUnchangedMenksoft && isUnchangedExpl && hasComment)
+                  ? ''
+                  : menksoft;
+
+              final res = await http
+                  .post(
+                    Uri.parse('${widget.serverUrl}/contribute'),
+                    headers: _headers,
+                    body: jsonEncode({
+                      'cyrillic': cyrillic,
+                      'menksoft': effectiveMenksoft,
+                      'context': context ?? '',
+                      'explanation': explanation ?? '',
+                      'comment': comment ?? '',
+                      'targetMenksoft': def['menksoft'],
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 15));
               if (res.statusCode == 200) {
                 if (mounted) {
                   ScaffoldMessenger.of(this.context).showSnackBar(
@@ -245,13 +280,27 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
   }
 
   Future<void> _setPrimaryDefinition(String cyrillic, String menksoft) async {
+    if (_isActionInProgress) {
+      return;
+    }
+    setState(() => _isActionInProgress = true);
     try {
-      final res = await http.post(
-        Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
-        headers: _headers,
-        body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
-      );
+      final res = await http
+          .post(
+            Uri.parse('${widget.serverUrl}/admin/definitions/primary'),
+            headers: _headers,
+            body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) {
+        return;
+      }
+      bool updated = false;
       if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        updated = data['updated'] == true;
+      }
+      if (updated) {
         _searchWord(cyrillic);
       } else {
         throw Exception(res.body);
@@ -264,6 +313,10 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionInProgress = false);
       }
     }
   }
@@ -296,19 +349,23 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               String? comment,
               bool isPrimary = true,
             }) async {
-              final res = await http.post(
-                Uri.parse('${widget.serverUrl}/admin/definitions/update'),
-                headers: _headers,
-                body: jsonEncode({
-                  'cyrillic': cyrillic,
-                  'targetMenksoft': def['menksoft'],
-                  'menksoft': menksoft,
-                  'explanation': explanation,
-                  'isPrimary': isPrimary,
-                }),
-              );
+              final res = await http
+                  .post(
+                    Uri.parse('${widget.serverUrl}/admin/definitions/update'),
+                    headers: _headers,
+                    body: jsonEncode({
+                      'cyrillic': cyrillic,
+                      'targetMenksoft': def['menksoft'],
+                      'menksoft': menksoft,
+                      'explanation': explanation ?? '',
+                      'isPrimary': isPrimary,
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 15));
               if (res.statusCode == 200) {
-                _searchWord(cyrillic);
+                if (mounted) {
+                  _searchWord(cyrillic);
+                }
               } else {
                 throw Exception(res.body);
               }
@@ -318,6 +375,9 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
   }
 
   Future<void> _deleteDefinition(String cyrillic, String menksoft) async {
+    if (_isActionInProgress) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -344,13 +404,24 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
     );
 
     if (confirmed == true && mounted) {
+      setState(() => _isActionInProgress = true);
       try {
-        final res = await http.post(
-          Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
-          headers: _headers,
-          body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
-        );
+        final res = await http
+            .post(
+              Uri.parse('${widget.serverUrl}/admin/definitions/delete'),
+              headers: _headers,
+              body: jsonEncode({'cyrillic': cyrillic, 'menksoft': menksoft}),
+            )
+            .timeout(const Duration(seconds: 15));
+        if (!mounted) {
+          return;
+        }
+        bool deleted = false;
         if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          deleted = data['deleted'] == true;
+        }
+        if (deleted) {
           _searchWord(cyrillic);
         } else {
           throw Exception(res.body);
@@ -363,6 +434,10 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
               backgroundColor: Colors.red,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isActionInProgress = false);
         }
       }
     }
@@ -882,6 +957,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
         submitButtonText: 'Хадгалах',
         onDelete: () async {
           await LocalDictionaryService.instance.deleteWord(entry.cyrillic);
+          widget.onLocalWordsChanged?.call();
         },
         onSubmit:
             ({
@@ -897,6 +973,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                 menksoft: menksoft,
                 explanation: explanation,
               );
+              widget.onLocalWordsChanged?.call();
             },
       ),
     );
@@ -928,6 +1005,7 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
 
     if (confirmed == true && mounted) {
       await LocalDictionaryService.instance.deleteWord(entry.cyrillic);
+      widget.onLocalWordsChanged?.call();
     }
   }
 
@@ -1212,12 +1290,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                         icon: Icons.star_border,
                                         tooltip: 'Үндсэн болгох',
                                         size: 15,
-                                        onPressed: () {
-                                          _setPrimaryDefinition(
-                                            searchedWord,
-                                            menksoft,
-                                          );
-                                        },
+                                        onPressed: _isActionInProgress
+                                            ? null
+                                            : () {
+                                                _setPrimaryDefinition(
+                                                  searchedWord,
+                                                  menksoft,
+                                                );
+                                              },
                                       ),
                                       const SizedBox(width: 4),
                                     ],
@@ -1225,9 +1305,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                       icon: Icons.edit,
                                       tooltip: 'Засах',
                                       size: 15,
-                                      onPressed: () {
-                                        _editDefinition(searchedWord, def);
-                                      },
+                                      onPressed: _isActionInProgress
+                                          ? null
+                                          : () {
+                                              _editDefinition(
+                                                searchedWord,
+                                                def,
+                                              );
+                                            },
                                     ),
                                     const SizedBox(width: 4),
                                     DesktopIconButton(
@@ -1235,12 +1320,14 @@ class _DictionaryBrowseViewState extends State<DictionaryBrowseView> {
                                       tooltip: 'Устгах',
                                       size: 15,
                                       color: DesktopTheme.danger,
-                                      onPressed: () {
-                                        _deleteDefinition(
-                                          searchedWord,
-                                          menksoft,
-                                        );
-                                      },
+                                      onPressed: _isActionInProgress
+                                          ? null
+                                          : () {
+                                              _deleteDefinition(
+                                                searchedWord,
+                                                menksoft,
+                                              );
+                                            },
                                     ),
                                     const SizedBox(width: 4),
                                   ],

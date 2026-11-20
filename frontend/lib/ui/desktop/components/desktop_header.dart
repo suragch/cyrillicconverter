@@ -10,6 +10,7 @@ class DesktopHeader extends StatelessWidget {
   final int moderatorBadgeCount;
   final bool isRestoringSession;
   final bool isLoggedIn;
+  final bool isModerator;
   final Map<String, dynamic>? currentUser;
   final VoidCallback onLoginPressed;
   final VoidCallback onLogoutPressed;
@@ -23,6 +24,7 @@ class DesktopHeader extends StatelessWidget {
     this.moderatorBadgeCount = 0,
     required this.isRestoringSession,
     required this.isLoggedIn,
+    this.isModerator = false,
     this.currentUser,
     required this.onLoginPressed,
     required this.onLogoutPressed,
@@ -76,7 +78,7 @@ class DesktopHeader extends StatelessWidget {
                         tab: DesktopNavTab.converter,
                         label: 'Хөрвүүлэгч',
                       ),
-                      if (isLoggedIn) ...[
+                      if (isLoggedIn && isModerator) ...[
                         const SizedBox(width: 4),
                         _buildNavTab(
                           tab: DesktopNavTab.moderator,
@@ -115,55 +117,66 @@ class DesktopHeader extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       else if (isLoggedIn) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: DesktopTheme.secondarySurface,
-                            borderRadius: DesktopTheme.roundedSmall,
-                            border: Border.all(
-                              color: DesktopTheme.border,
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 16,
-                                height: 16,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: DesktopTheme.primary,
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  (currentUser?['email'] as String? ?? 'U')
-                                      .substring(0, 1)
-                                      .toUpperCase(),
-                                  style: const TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+                        Builder(
+                          builder: (context) {
+                            final rawEmail =
+                                (currentUser?['email'] as String?)?.trim() ??
+                                '';
+                            final avatarInitial = rawEmail.isNotEmpty
+                                ? rawEmail.substring(0, 1).toUpperCase()
+                                : 'U';
+                            final displayEmail = rawEmail.isNotEmpty
+                                ? rawEmail
+                                : 'Хэрэглэгч';
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: DesktopTheme.secondarySurface,
+                                borderRadius: DesktopTheme.roundedSmall,
+                                border: Border.all(
+                                  color: DesktopTheme.border,
+                                  width: 1,
                                 ),
                               ),
-                              if (!isCompact) ...[
-                                const SizedBox(width: 6),
-                                Text(
-                                  currentUser?['email'] as String? ??
-                                      'Хэрэглэгч',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: DesktopTheme.textPrimary,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: DesktopTheme.primary,
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      avatarInitial,
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ],
-                          ),
+                                  if (!isCompact) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      displayEmail,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: DesktopTheme.textPrimary,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(width: 4),
                         DesktopButton(

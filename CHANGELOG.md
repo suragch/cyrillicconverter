@@ -1,3 +1,13 @@
+## 1.3.1 - 2026.11.20
+
+- Fix Moderator View double-submit/navigation queue races, stale word-check overwrites, silent delete/primary failures, and missing-word pagination/count caps.
+- Add explicit action selector (`replace`, `add_secondary`, `add_primary`) in `EditSuggestionDialog`, fix explanation clearing, and omit auto-generated ECK import notes unless customized.
+- Protect comment-bearing error reports from auto-resolution and submit unchanged-spelling reports cleanly as text-only reports.
+- Preserve newlines/paragraph breaks during conversion and fix compound punctuation (`...`, `?!`, `!?`) and per-paragraph paired straight quotes (`"` → `«...»`).
+- Fix `LocalDictionaryService` persistence lock recovery after write errors, ALL-CAPS fallback lookup, and live token reconciliation after local edits.
+- Fix non-moderator role visibility, empty-email header crash, unmapped Mongolian Unicode paste handling, dialog viewport clamping/wrapping, and controller/lifecycle leaks.
+- Enforce the 512KB payload limit on chunked backend requests, harden `/admin/words` and CLI seed/setup scripts, and align Cyrillic validator rules with tokenizer.
+
 ## 1.3.0 - 2026.11.10
 
 - Separate dictionary explanation from contributor comments and error reports.

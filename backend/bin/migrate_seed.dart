@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:backend/cyrillic_validator.dart';
 import 'package:backend/database.dart';
 
 void main() async {
@@ -55,7 +56,7 @@ void main() async {
           continue;
         }
 
-        final normalized = cyrillic.toLowerCase();
+        final normalized = CyrillicValidator.normalizeWord(cyrillic);
 
         // 1. Insert word
         db.execute('INSERT OR IGNORE INTO words (cyrillic) VALUES (?);', [

@@ -77,27 +77,27 @@ void main(List<String> args) async {
       if (data is List) {
         // Simple list of word definitions: [{'cyrillic': ..., 'menksoft': ..., 'explanation': ...}]
         int count = 0;
-        appDb.db.execute('BEGIN TRANSACTION;');
-        for (final item in data) {
-          final cyr = (item['cyrillic'] as String?)?.trim();
-          final menk = (item['menksoft'] as String?)?.trim();
-          final exp = item['explanation'] as String?;
-          final isPrim = item['isPrimary'] as bool? ?? true;
-          if (cyr != null &&
-              cyr.isNotEmpty &&
-              menk != null &&
-              menk.isNotEmpty) {
-            appDb.addWordDefinition(
-              cyrillic: cyr,
-              menksoft: menk,
-              explanation: exp,
-              isPrimary: isPrim,
-              verifiedBy: 'json_seed',
-            );
-            count++;
+        appDb.runInTransaction(() {
+          for (final item in data) {
+            final cyr = (item['cyrillic'] as String?)?.trim();
+            final menk = (item['menksoft'] as String?)?.trim();
+            final exp = item['explanation'] as String?;
+            final isPrim = item['isPrimary'] as bool? ?? true;
+            if (cyr != null &&
+                cyr.isNotEmpty &&
+                menk != null &&
+                menk.isNotEmpty) {
+              appDb.addWordDefinition(
+                cyrillic: cyr,
+                menksoft: menk,
+                explanation: exp,
+                isPrimary: isPrim,
+                verifiedBy: 'json_seed',
+              );
+              count++;
+            }
           }
-        }
-        appDb.db.execute('COMMIT;');
+        });
         print('Imported $count words from JSON list.');
       } else if (data is Map && data.containsKey('words')) {
         // Full database dump
@@ -106,27 +106,27 @@ void main(List<String> args) async {
         print(
           'Importing full database dump (${words.length} words, ${defs.length} definitions)...',
         );
-        appDb.db.execute('BEGIN TRANSACTION;');
-        for (final w in words) {
-          appDb.db.execute(
-            'INSERT OR IGNORE INTO words (id, cyrillic, is_abbreviation) VALUES (?, ?, ?);',
-            [w['id'], w['cyrillic'], w['is_abbreviation'] ?? 0],
-          );
-        }
-        for (final d in defs) {
-          appDb.db.execute(
-            'INSERT OR IGNORE INTO definitions (id, word_id, menksoft_code, explanation, is_primary, verified_by) VALUES (?, ?, ?, ?, ?, ?);',
-            [
-              d['id'],
-              d['word_id'],
-              d['menksoft_code'],
-              d['explanation'],
-              d['is_primary'] ?? 0,
-              d['verified_by'],
-            ],
-          );
-        }
-        appDb.db.execute('COMMIT;');
+        appDb.runInTransaction(() {
+          for (final w in words) {
+            appDb.db.execute(
+              'INSERT OR IGNORE INTO words (id, cyrillic, is_abbreviation) VALUES (?, ?, ?);',
+              [w['id'], w['cyrillic'], w['is_abbreviation'] ?? 0],
+            );
+          }
+          for (final d in defs) {
+            appDb.db.execute(
+              'INSERT OR IGNORE INTO definitions (id, word_id, menksoft_code, explanation, is_primary, verified_by) VALUES (?, ?, ?, ?, ?, ?);',
+              [
+                d['id'],
+                d['word_id'],
+                d['menksoft_code'],
+                d['explanation'],
+                d['is_primary'] ?? 0,
+                d['verified_by'],
+              ],
+            );
+          }
+        });
         print('Full database dump imported successfully.');
       }
     } else if (args.contains('--export-json')) {

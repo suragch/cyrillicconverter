@@ -9,9 +9,11 @@ import 'package:frontend/main.dart';
 import 'package:frontend/services/latin_ime.dart';
 import 'package:frontend/token.dart';
 import 'package:frontend/ui/desktop/components/desktop_button.dart';
+import 'package:frontend/ui/desktop/components/desktop_header.dart';
 import 'package:frontend/ui/desktop/components/desktop_status_bar.dart';
 import 'package:frontend/ui/dialogs/add_edit_word_dialog.dart';
 import 'package:frontend/ui/dictionary/dictionary_browse_view.dart';
+import 'package:frontend/ui/moderator/edit_suggestion_dialog.dart';
 import 'package:frontend/ui/moderator/moderator_page.dart';
 import 'package:mongol/mongol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -81,6 +83,18 @@ void main() {
       expect(LatinIme.normalizeCyrillic('Монгол'), 'монгол');
       expect(LatinIme.normalizeCyrillic('Ном'), 'ном');
     });
+
+    test(
+      'convertPunctuationToMenksoft handles compound punctuation and paired straight quotes',
+      () {
+        expect(LatinIme.convertPunctuationToMenksoft('...)'), '\uE235\uE254');
+        expect(LatinIme.convertPunctuationToMenksoft('?!"'), '\uE24E\uE259');
+        expect(
+          LatinIme.convertPunctuationToMenksoft('"Сайн"\n"Баярлалаа"'),
+          '\uE259Сайн\uE25A\n\uE259Баярлалаа\uE25A',
+        );
+      },
+    );
   });
 
   group('Homonym Selection Reconciliation Tests', () {
@@ -1413,7 +1427,507 @@ void main() {
         expect(submittedPrimary, isTrue);
       },
     );
+
+    testWidgets(
+      'DesktopHeader handles empty email without RangeError and respects isModerator',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  DesktopHeader(
+                    activeTab: DesktopNavTab.converter,
+                    onTabChanged: (_) {},
+                    isRestoringSession: false,
+                    isLoggedIn: true,
+                    isModerator: false,
+                    currentUser: const {'id': 'u1', 'email': ''},
+                    onLoginPressed: () {},
+                    onLogoutPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('U'), findsOneWidget);
+        expect(find.text('Шүүгч'), findsNothing);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  DesktopHeader(
+                    activeTab: DesktopNavTab.converter,
+                    onTabChanged: (_) {},
+                    isRestoringSession: false,
+                    isLoggedIn: true,
+                    isModerator: true,
+                    moderatorBadgeCount: 5,
+                    currentUser: const {'id': 'm1', 'email': 'mod@test.com'},
+                    onLoginPressed: () {},
+                    onLogoutPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('M'), findsOneWidget);
+        expect(find.text('Шүүгч'), findsOneWidget);
+        expect(find.text('5'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'AddEditWordDialog handles unmapped Mongolian Unicode without freezing and does not submit on Enter in comment field',
+      (tester) async {
+        bool submitted = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AddEditWordDialog(
+                        title: 'Тест',
+                        initialCyrillic: 'ном',
+                        showCommentField: true,
+                        onSubmit:
+                            ({
+                              required cyrillic,
+                              required menksoft,
+                              context,
+                              explanation,
+                              comment,
+                              isPrimary = true,
+                            }) async {
+                              submitted = true;
+                            },
+                      ),
+                    );
+                  },
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Dialog'));
+        await tester.pumpAndSettle();
+
+        // Enter Mongolian Unicode containing unmapped punctuation U+1803 (᠃)
+        final latinFinder = find.widgetWithText(TextField, 'Латин галиг');
+        await tester.enterText(latinFinder, 'ᠨᠣᠮ᠃');
+        await tester.pumpAndSettle();
+
+        // Should convert 'ᠨᠣᠮ' to 'nqm' and leave '᠃' without looping/freezing
+        final latinField = tester.widget<TextField>(latinFinder);
+        expect(latinField.controller?.text, 'nqm᠃');
+
+        // Focus multi-line comment field and press Enter -> must NOT submit dialog
+        final commentFinder = find.widgetWithText(
+          TextField,
+          'Модераторт илгээх тайлбар / Алдааны мэдээлэл (заавал биш)',
+        );
+        await tester.tap(commentFinder);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+
+        expect(submitted, isFalse);
+        expect(find.text('Тест'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'EditSuggestionDialog defaults to add_secondary without explicit target, replace with explicit target, and clears ECK note',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 900);
+        final mockOverrides = _RoutingMockHttpOverrides({
+          'GET /admin/words/check': (_) => _MockResponse(
+            200,
+            jsonEncode({
+              'cyrillic': 'ном',
+              'exists': true,
+              'definitions': [
+                {'menksoft': 'menk_existing', 'isDefault': true},
+              ],
+              'rejectionHistory': [],
+            }),
+          ),
+        });
+        HttpOverrides.global = mockOverrides;
+        addTearDown(() {
+          HttpOverrides.global = null;
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        String? savedAction;
+        String? savedExplanation;
+
+        // 1. ECK import suggestion without explicitTargetMenksoft -> defaults to add_secondary and clears ECK note
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return Center(
+                    child: Column(
+                      children: [
+                        ElevatedButton(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => EditSuggestionDialog(
+                                initialCyrillic: 'ном',
+                                initialMenksoft: LatinIme.latinToMenksoft(
+                                  'nom',
+                                ),
+                                initialExplanation: 'ECK толь (1:1)',
+                                submittedBy: 'eck_import',
+                                selectedTargetMenksoft: 'menk_existing',
+                                serverUrl: 'http://localhost:8080',
+                                onSave:
+                                    ({
+                                      required cyrillic,
+                                      required menksoft,
+                                      explanation,
+                                      required andApprove,
+                                      action = 'add_primary',
+                                      targetMenksoft,
+                                    }) async {
+                                      savedAction = action;
+                                      savedExplanation = explanation;
+                                    },
+                              ),
+                            );
+                          },
+                          child: const Text('Open 1'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => EditSuggestionDialog(
+                                initialCyrillic: 'ном',
+                                initialMenksoft: LatinIme.latinToMenksoft(
+                                  'nom',
+                                ),
+                                explicitTargetMenksoft: 'menk_existing',
+                                serverUrl: 'http://localhost:8080',
+                                onSave:
+                                    ({
+                                      required cyrillic,
+                                      required menksoft,
+                                      explanation,
+                                      required andApprove,
+                                      action = 'add_primary',
+                                      targetMenksoft,
+                                    }) async {
+                                      savedAction = action;
+                                    },
+                              ),
+                            );
+                          },
+                          child: const Text('Open 2'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Open 1'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Импортын мэдээлэл (Толь бичигт хуулагдахгүй):'),
+          findsOneWidget,
+        );
+        expect(find.text('ECK толь (1:1)'), findsOneWidget);
+
+        await tester.tap(find.text('Хадгалаад батлах'));
+        await tester.pumpAndSettle();
+
+        // Homonym note prompt opens cleanly (without overflow) when adding new variant with empty note
+        expect(find.text('Ялгах тэмдэглэл шаардлагатай'), findsOneWidget);
+        await tester.tap(find.text('Тэмдэглэлгүй үргэлжлүүлэх'));
+        await tester.pumpAndSettle();
+
+        expect(savedAction, 'add_secondary');
+        expect(savedExplanation, '');
+
+        // 2. Suggestion with explicitTargetMenksoft -> defaults to replace
+        savedAction = null;
+        await tester.tap(find.text('Open 2'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Хадгалаад батлах'));
+        await tester.pumpAndSettle();
+        expect(savedAction, 'replace');
+      },
+    );
+
+    testWidgets(
+      'ModeratorPage shows total missing badge, guards double reject, and shows error on 404 delete',
+      (tester) async {
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(1280, 900);
+        final rejectCompleter = Completer<void>();
+        var rejectCallCount = 0;
+
+        final mockOverrides = _RoutingMockHttpOverrides({
+          'GET /admin/missing': (_) => _MockResponse(
+            200,
+            jsonEncode({
+              'missing': [
+                {'id': 1, 'cyrillic': 'дутууүг', 'frequency': 5},
+              ],
+              'total': 42,
+            }),
+          ),
+          'GET /admin/suggestions': (_) => _MockResponse(
+            200,
+            jsonEncode({
+              'suggestions': [
+                {
+                  'id': 10,
+                  'cyrillic': 'эхнийүг',
+                  'menksoft_code': 'menk_1',
+                  'submitted_by': 'u1',
+                },
+                {
+                  'id': 11,
+                  'cyrillic': 'хоёрдахьүг',
+                  'menksoft_code': 'menk_2',
+                  'submitted_by': 'u2',
+                },
+              ],
+              'total': 2,
+            }),
+          ),
+          'GET /admin/words/check': (_) => _MockResponse(
+            200,
+            jsonEncode({
+              'cyrillic': 'эхнийүг',
+              'exists': true,
+              'definitions': [
+                {'menksoft': 'menk_existing', 'isDefault': true},
+              ],
+              'rejectionHistory': [],
+            }),
+          ),
+          'POST /admin/suggestions/reject': (_) async {
+            rejectCallCount++;
+            await rejectCompleter.future;
+            return _MockResponse(200, jsonEncode({'success': true}));
+          },
+          'POST /admin/definitions/delete': (_) => _MockResponse(
+            404,
+            jsonEncode({
+              'success': false,
+              'deleted': false,
+              'error': 'Definition not found',
+            }),
+          ),
+        });
+        HttpOverrides.global = mockOverrides;
+        addTearDown(() {
+          HttpOverrides.global = null;
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: ModeratorPage(
+                serverUrl: 'http://localhost:8080',
+                authToken: 'mod-token',
+                moderatorId: 'mod1',
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Missing words tab badge should show total (42) rather than list length (1)
+        expect(find.text('42'), findsOneWidget);
+        expect(find.text('эхнийүг'), findsOneWidget);
+
+        // Attempt delete definition -> server returns 404 -> error SnackBar shown
+        await tester.tap(find.byTooltip('Устгах'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Устгах').last);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Устгаж чадсангүй'), findsOneWidget);
+
+        // Press hotkey '2' twice rapidly before first reject finishes -> only 1 POST fires
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+        await tester.pump();
+        expect(rejectCallCount, 1);
+        // Second item must not be prematurely skipped while in flight
+        expect(find.text('эхнийүг'), findsOneWidget);
+
+        rejectCompleter.complete();
+        await tester.pumpAndSettle();
+
+        // First suggestion removed cleanly, second suggestion now shown
+        expect(find.text('хоёрдахьүг'), findsOneWidget);
+        expect(find.text('Санал 1 / 1'), findsOneWidget);
+      },
+    );
   });
+}
+
+class _MockResponse {
+  final int statusCode;
+  final String body;
+  const _MockResponse(this.statusCode, this.body);
+}
+
+class _RoutingMockHttpOverrides extends HttpOverrides {
+  final Map<String, FutureOr<_MockResponse> Function(Uri url)> routes;
+  _RoutingMockHttpOverrides(this.routes);
+
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return _RoutingMockHttpClient(routes);
+  }
+}
+
+class _RoutingMockHttpClient implements HttpClient {
+  final Map<String, FutureOr<_MockResponse> Function(Uri url)> routes;
+  _RoutingMockHttpClient(this.routes);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    return _RoutingMockRequest(method.toUpperCase(), url, routes);
+  }
+
+  @override
+  Future<HttpClientRequest> postUrl(Uri url) => openUrl('POST', url);
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) => openUrl('GET', url);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _RoutingMockRequest implements HttpClientRequest {
+  @override
+  final String method;
+  final Uri url;
+  final Map<String, FutureOr<_MockResponse> Function(Uri url)> routes;
+
+  _RoutingMockRequest(this.method, this.url, this.routes);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  bool followRedirects = false;
+
+  @override
+  int maxRedirects = 5;
+
+  @override
+  int contentLength = -1;
+
+  @override
+  bool persistentConnection = false;
+
+  @override
+  HttpHeaders get headers => _MockHttpHeaders();
+
+  @override
+  void add(List<int> data) {}
+
+  @override
+  Future addStream(Stream<List<int>> stream) async {
+    await stream.drain();
+  }
+
+  @override
+  Future<HttpClientResponse> close() async {
+    final key = '$method ${url.path}';
+    final handler = routes[key];
+    final res = handler != null
+        ? await handler(url)
+        : const _MockResponse(404, '{"error":"not found"}');
+    return _RoutingMockResponse(res.statusCode, res.body);
+  }
+}
+
+class _RoutingMockResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  @override
+  final int statusCode;
+  final String responseBody;
+
+  _RoutingMockResponse(this.statusCode, this.responseBody);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  String get reasonPhrase => statusCode == 200 ? 'OK' : 'Error';
+
+  @override
+  int get contentLength => utf8.encode(responseBody).length;
+
+  @override
+  bool get persistentConnection => false;
+
+  @override
+  bool get isRedirect => false;
+
+  @override
+  List<RedirectInfo> get redirects => const [];
+
+  @override
+  HttpHeaders get headers => _MockHttpHeaders();
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return Stream.value(utf8.encode(responseBody)).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
 }
 
 class _MockConvertHttpOverrides extends HttpOverrides {

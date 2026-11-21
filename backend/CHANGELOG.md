@@ -1,3 +1,7 @@
+## 1.3.2
+
+- Automatically clean already-known words (exact, whitespace-padded, and Cyrillic case-variant matches) from `unknown_logs` via `cleanKnownUnknownLogs()` during startup initialization (`initSchema()`) and consistently across word additions, replacements, and suggestion approvals while preserving distinct lowercase regular words when adding abbreviations.
+
 ## 1.3.1
 
 - Add ALL-CAPS lowercase fallback and `TRIM(menksoft_code)` matching on definition delete, primary promotion, and replacement; return HTTP 404/409 on missing or already-reviewed moderator actions.

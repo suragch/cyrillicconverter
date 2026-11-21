@@ -818,5 +818,63 @@ void main() {
         expect(historyLower.length, 1);
       },
     );
+
+    test(
+      'cleanKnownUnknownLogs and initSchema remove resolved words while preserving distinct abbreviations',
+      () {
+        appDb.addWordDefinition(cyrillic: 'сарын', menksoft: 'menk_month');
+        appDb.addWordDefinition(cyrillic: 'ёс', menksoft: 'menk_rule');
+        appDb.addWordDefinition(cyrillic: 'өдөр', menksoft: 'menk_day');
+        appDb.addWordDefinition(cyrillic: 'үг', menksoft: 'menk_word');
+        appDb.addWordDefinition(cyrillic: 'АН', menksoft: 'menk_abbr');
+
+        rawDb.execute(
+          "INSERT INTO unknown_logs (cyrillic, frequency) VALUES ('сарын', 5), ('Сарын', 4), ('САРЫН', 3), (' сарын ', 2), ('Ёс', 2), ('Өдөр', 2), ('Үг', 2), ('АН', 6), ('ан', 7), ('танихгүй', 9)",
+        );
+
+        final removed = appDb.cleanKnownUnknownLogs();
+        expect(removed, 8);
+
+        final remainingRows = rawDb.select(
+          'SELECT cyrillic FROM unknown_logs ORDER BY cyrillic ASC;',
+        );
+        expect(remainingRows.map((r) => r['cyrillic']).toList(), [
+          'ан',
+          'танихгүй',
+        ]);
+
+        // Verify startup initSchema() triggers cleanKnownUnknownLogs automatically
+        rawDb.execute(
+          "INSERT INTO unknown_logs (cyrillic, frequency) VALUES ('САРЫН', 1)",
+        );
+        appDb.initSchema();
+        final afterStartupRows = rawDb.select(
+          'SELECT cyrillic FROM unknown_logs ORDER BY cyrillic ASC;',
+        );
+        expect(afterStartupRows.map((r) => r['cyrillic']).toList(), [
+          'ан',
+          'танихгүй',
+        ]);
+      },
+    );
+
+    test(
+      'addWordDefinition removes matching unknown_logs while keeping regular words separate from abbreviations',
+      () {
+        rawDb.execute(
+          "INSERT INTO unknown_logs (cyrillic, frequency) VALUES ('шинэүг', 3), ('ШИНЭҮГ', 2), ('мөн', 4), ('МӨН', 1), ('бб', 5), ('ББ', 6)",
+        );
+
+        appDb.addWordDefinition(cyrillic: 'ШинэҮг', menksoft: 'menk_new');
+        appDb.addWordDefinition(cyrillic: 'мөн', menksoft: 'menk_also');
+        // Adding abbreviation 'ББ' must remove 'ББ' without removing lowercase regular word 'бб'
+        appDb.addWordDefinition(cyrillic: 'ББ', menksoft: 'menk_bb');
+
+        final remaining = rawDb.select(
+          'SELECT cyrillic FROM unknown_logs ORDER BY cyrillic ASC;',
+        );
+        expect(remaining.map((r) => r['cyrillic']).toList(), ['бб']);
+      },
+    );
   });
 }

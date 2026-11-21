@@ -32,7 +32,6 @@
 
   <title>Кирилл ➜ ᠮᠣᠩᠭᠣᠯ Хөрвүүлэгч & Толь бичиг</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="preload" href="assets/assets/fonts/MQG8F02.ttf" as="font" type="font/ttf" crossorigin>
 </head>
 <body>
   <div id="splash">
@@ -40,11 +39,6 @@
     <div class="splash-title">Кирилл - Монгол бичиг хөрвүүлэгч</div>
   </div>
   <style>
-    @font-face {
-      font-family: 'Menksoft';
-      src: url('assets/assets/fonts/MQG8F02.ttf') format('truetype');
-      font-display: swap;
-    }
     #splash {
       position: fixed;
       top: 0;
@@ -104,7 +98,17 @@
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    {{flutter_bootstrap_js}}
+  </script>
 </body>
 </html>

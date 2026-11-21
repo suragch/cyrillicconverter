@@ -63,4 +63,4 @@ jobs:
 
       - name: Build Frontend Web Release
         working-directory: frontend
-        run: flutter build web --release
+        run: flutter build web --release --web-content-hash

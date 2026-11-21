@@ -878,7 +878,6 @@ Future<Response> _adminAddWordHandler(Request request) async {
       });
     }
 
-    final normalized = CyrillicValidator.normalizeWord(cyrillic);
     final wordId = _db.addWordDefinition(
       cyrillic: cyrillic,
       menksoft: menksoft,
@@ -886,13 +885,6 @@ Future<Response> _adminAddWordHandler(Request request) async {
       isPrimary: isPrimary,
       verifiedBy: auth?.user?.id ?? 'moderator',
     );
-
-    // Also remove from unknown_logs if it was there
-    _db.db.execute('DELETE FROM unknown_logs WHERE cyrillic IN (?, ?, ?)', [
-      cyrillic,
-      normalized,
-      normalized.toLowerCase(),
-    ]);
 
     return Response.ok(
       jsonEncode({'success': true, 'wordId': wordId}),

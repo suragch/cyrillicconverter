@@ -64,7 +64,7 @@ jobs:
           flutter pub get
           flutter analyze --fatal-infos
           flutter test
-          flutter build web --release
+          flutter build web --release --web-content-hash
 
       # --- Single-Session SSH Deployment ---
       - name: Configure SSH
@@ -89,7 +89,8 @@ jobs:
         run: |
           mkdir -p /tmp/deploy_bundle
           if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then
-            cp -r frontend/build/web /tmp/deploy_bundle/web
+            mkdir -p /tmp/deploy_bundle/web
+            rsync -a --exclude='.last_build_id' frontend/build/web/ /tmp/deploy_bundle/web/
           fi
           if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
             mkdir -p /tmp/deploy_bundle/backend
@@ -104,7 +105,7 @@ jobs:
 
             if [ -d \"\$STAGING/web\" ]; then
               echo '==> Updating Flutter Web frontend...'
-              cp -r \"\$STAGING/web/\"* /var/www/cyrillic.suragch.dev/html/
+              rsync -a --delete --exclude='.well-known' \"\$STAGING/web/\" /var/www/cyrillic.suragch.dev/html/
               chmod -R a+rX /var/www/cyrillic.suragch.dev/html/
             fi
 

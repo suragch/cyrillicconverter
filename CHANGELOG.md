@@ -1,3 +1,8 @@
+## 1.3.2 - 2026.11.20
+
+- Enable `--web-content-hash` builds with inlined `flutter_bootstrap.js`, automatic legacy service worker unregistration, and stale bundle pruning during deploy to prevent browser/Cloudflare cache staleness after updates.
+- Auto-clean already-known words (including whitespace-padded and Cyrillic case-variant entries) from `unknown_logs` at startup and across word additions, replacements, and suggestion approvals while keeping abbreviations separate from regular lowercase words.
+
 ## 1.3.1 - 2026.11.20
 
 - Fix Moderator View double-submit/navigation queue races, stale word-check overwrites, silent delete/primary failures, and missing-word pagination/count caps.
